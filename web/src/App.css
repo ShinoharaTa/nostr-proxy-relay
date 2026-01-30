@@ -659,3 +659,58 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* Alert */
+.alert {
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.alert-warning {
+  background: rgba(242, 204, 12, 0.15);
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+
+.alert-danger {
+  background: rgba(242, 73, 92, 0.15);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.alert-success {
+  background: rgba(115, 191, 105, 0.15);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+/* Info Box */
+.info-box {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-panel-header);
+  border-radius: 4px;
+  border-left: 3px solid var(--info);
+}
+
+.info-box h4 {
+  color: var(--info);
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.info-box p {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Badge secondary */
+.badge-secondary {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}

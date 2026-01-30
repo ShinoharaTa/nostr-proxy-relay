@@ -34,6 +34,11 @@ interface FilterRule {
   rule_order: number;
 }
 
+interface RelayConfig {
+  url: string;
+  enabled: boolean;
+}
+
 interface ConnectionLog {
   id: number;
   ip_address: string;
@@ -63,7 +68,7 @@ interface Stats {
   top_ips_by_rejections: { ip_address: string; count: number }[];
 }
 
-type Tab = 'dashboard' | 'safelist' | 'ip' | 'kind' | 'filters' | 'logs';
+type Tab = 'dashboard' | 'relays' | 'safelist' | 'ip' | 'kind' | 'filters' | 'logs';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -76,6 +81,9 @@ function App() {
       <nav className="tabs">
         <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
           Dashboard
+        </button>
+        <button className={activeTab === 'relays' ? 'active' : ''} onClick={() => setActiveTab('relays')}>
+          Relay Settings
         </button>
         <button className={activeTab === 'safelist' ? 'active' : ''} onClick={() => setActiveTab('safelist')}>
           Npub Management
@@ -96,6 +104,7 @@ function App() {
       <main className="main-container">
         <div className="container-fluid">
           {activeTab === 'dashboard' && <DashboardSection />}
+          {activeTab === 'relays' && <RelaysSection />}
           {activeTab === 'safelist' && <SafelistSection />}
           {activeTab === 'ip' && <IpSection />}
           {activeTab === 'kind' && <KindBlacklistSection />}
@@ -229,6 +238,123 @@ function getValueClass(value: number, max: number): string {
   if (ratio > 0.7) return 'high';
   if (ratio > 0.3) return 'medium';
   return 'low';
+}
+
+// Relays Section
+function RelaysSection() {
+  const [relays, setRelays] = useState<RelayConfig[]>([]);
+  const [newUrl, setNewUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const fetchRelays = () => {
+    fetch('/api/relay')
+      .then(res => res.json())
+      .then(data => { setRelays(data); setLoading(false); });
+  };
+
+  useEffect(() => { fetchRelays(); }, []);
+
+  const addRelay = () => {
+    if (!newUrl) return;
+    // Add new relay to list and save
+    const updated = [...relays, { url: newUrl, enabled: true }];
+    fetch('/api/relay', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relays: updated })
+    }).then(() => { fetchRelays(); setNewUrl(''); });
+  };
+
+  const toggleRelay = (index: number) => {
+    const updated = relays.map((r, i) => 
+      i === index ? { ...r, enabled: !r.enabled } : r
+    );
+    fetch('/api/relay', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relays: updated })
+    }).then(fetchRelays);
+  };
+
+  const deleteRelay = (index: number) => {
+    if (!confirm('Delete this relay?')) return;
+    const updated = relays.filter((_, i) => i !== index);
+    fetch('/api/relay', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relays: updated })
+    }).then(fetchRelays);
+  };
+
+  if (loading) return <div className="loading">Loading...</div>;
+
+  const activeRelay = relays.find(r => r.enabled);
+
+  return (
+    <div className="section">
+      <h2>Backend Relay Settings</h2>
+      
+      {!activeRelay && (
+        <div className="alert alert-warning">
+          ⚠️ No backend relay configured. WebSocket connections will fail until a relay is added and enabled.
+        </div>
+      )}
+
+      <div className="form-row">
+        <input 
+          placeholder="wss://relay.example.com" 
+          value={newUrl} 
+          onChange={e => setNewUrl(e.target.value)}
+          className="wide"
+        />
+        <button onClick={addRelay}>Add Relay</button>
+      </div>
+
+      <div className="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Relay URL</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {relays.length === 0 ? (
+              <tr><td colSpan={3} className="empty-state">No relays configured</td></tr>
+            ) : (
+              relays.map((relay, index) => (
+                <tr key={index}>
+                  <td style={{ fontFamily: 'monospace' }}>{relay.url}</td>
+                  <td>
+                    {relay.enabled ? (
+                      <span className="badge badge-success">ACTIVE</span>
+                    ) : (
+                      <span className="badge badge-secondary">DISABLED</span>
+                    )}
+                  </td>
+                  <td>
+                    <button 
+                      className={`btn-small ${relay.enabled ? 'btn-warning' : 'btn-success'}`} 
+                      onClick={() => toggleRelay(index)}
+                    >
+                      {relay.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button className="btn-small btn-secondary" onClick={() => deleteRelay(index)}>Delete</button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="info-box">
+        <h4>ℹ️ Note</h4>
+        <p>The first enabled relay will be used as the backend. Currently, only one relay is used at a time.</p>
+      </div>
+    </div>
+  );
 }
 
 // Safelist Section
