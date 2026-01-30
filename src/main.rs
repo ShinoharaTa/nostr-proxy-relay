@@ -9,7 +9,12 @@ mod api;
 use db::{connect, migrate::migrate};
 use anyhow::Context;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use axum::{extract::ws::WebSocketUpgrade, routing::get, Router, response::{Html, IntoResponse}};
+use axum::{
+    extract::{ws::WebSocketUpgrade, ConnectInfo},
+    routing::get,
+    Router,
+    response::{Html, IntoResponse},
+};
 use std::net::SocketAddr;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -76,14 +81,19 @@ async fn main() -> anyhow::Result<()> {
             get({
                 let backend_url = backend_url.clone();
                 let pool = pool.clone();
-                move |ws: WebSocketUpgrade| async move {
-                    ws.on_upgrade(move |socket| async move {
-                        if let Err(e) =
-                            crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool)).await
-                        {
-                            tracing::warn!(error = %e, "ws proxy ended with error");
-                        }
-                    })
+                move |ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
+                    let backend_url = backend_url.clone();
+                    let pool = pool.clone();
+                    let client_ip = addr.ip().to_string();
+                    async move {
+                        ws.on_upgrade(move |socket| async move {
+                            if let Err(e) =
+                                crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip)).await
+                            {
+                                tracing::warn!(error = %e, "ws proxy ended with error");
+                            }
+                        })
+                    }
                 }
             }),
         )
@@ -95,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
     tracing::info!(%addr, "listening");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     Ok(())
 }
 

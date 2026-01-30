@@ -13,9 +13,18 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/relay", get(get_relays).put(put_relays))
         .route("/safelist", get(list_safelist).post(upsert_safelist))
         .route("/safelist/:npub", delete(delete_safelist))
+        .route("/safelist/:npub/ban", put(ban_npub))
+        .route("/safelist/:npub/unban", put(unban_npub))
         .route("/filters", get(list_filters).post(create_filter))
         .route("/filters/:id", put(update_filter).delete(delete_filter))
         .route("/filters/parse", post(parse_filter))
+        .route("/ip-access-control", get(list_ip_access_control).post(create_ip_access_control))
+        .route("/ip-access-control/:id", put(update_ip_access_control).delete(delete_ip_access_control))
+        .route("/req-kind-blacklist", get(list_req_kind_blacklist).post(create_req_kind_blacklist))
+        .route("/req-kind-blacklist/:id", put(update_req_kind_blacklist).delete(delete_req_kind_blacklist))
+        .route("/connection-logs", get(get_connection_logs))
+        .route("/event-rejection-logs", get(get_event_rejection_logs))
+        .route("/stats", get(get_stats))
         .with_state(pool.clone())
         .layer(axum::middleware::from_fn_with_state(pool, auth::basic_auth))
 }
@@ -212,3 +221,406 @@ async fn parse_filter(Json(body): Json<ParseFilterBody>) -> Json<ParseFilterResp
     Json(ParseFilterResp { parsed_json })
 }
 
+// IP管理エンドポイント
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpAccessControlRow {
+    pub id: Option<i64>,
+    pub ip_address: String,
+    pub banned: bool,
+    pub whitelisted: bool,
+    pub memo: String,
+}
+
+async fn list_ip_access_control(State(pool): State<SqlitePool>) -> Json<Vec<IpAccessControlRow>> {
+    let rows = sqlx::query_as::<_, (i64, String, i64, i64, String)>(
+        "SELECT id, ip_address, banned, whitelisted, memo FROM ip_access_control ORDER BY created_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    Json(
+        rows.into_iter()
+            .map(|(id, ip_address, banned, whitelisted, memo)| IpAccessControlRow {
+                id: Some(id),
+                ip_address,
+                banned: banned != 0,
+                whitelisted: whitelisted != 0,
+                memo,
+            })
+            .collect(),
+    )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateIpAccessControlBody {
+    pub ip_address: String,
+    pub banned: bool,
+    pub whitelisted: bool,
+    pub memo: String,
+}
+
+async fn create_ip_access_control(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<CreateIpAccessControlBody>,
+) -> Json<()> {
+    let banned = if body.banned { 1i64 } else { 0i64 };
+    let whitelisted = if body.whitelisted { 1i64 } else { 0i64 };
+    let _ = sqlx::query(
+        "INSERT INTO ip_access_control (ip_address, banned, whitelisted, memo) VALUES (?, ?, ?, ?)
+         ON CONFLICT(ip_address) DO UPDATE SET banned = excluded.banned, whitelisted = excluded.whitelisted, memo = excluded.memo, updated_at = datetime('now')",
+    )
+    .bind(body.ip_address)
+    .bind(banned)
+    .bind(whitelisted)
+    .bind(body.memo)
+    .execute(&pool)
+    .await;
+    Json(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateIpAccessControlBody {
+    pub ip_address: String,
+    pub banned: bool,
+    pub whitelisted: bool,
+    pub memo: String,
+}
+
+async fn update_ip_access_control(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateIpAccessControlBody>,
+) -> Json<()> {
+    let banned = if body.banned { 1i64 } else { 0i64 };
+    let whitelisted = if body.whitelisted { 1i64 } else { 0i64 };
+    let _ = sqlx::query(
+        "UPDATE ip_access_control SET ip_address = ?, banned = ?, whitelisted = ?, memo = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(body.ip_address)
+    .bind(banned)
+    .bind(whitelisted)
+    .bind(body.memo)
+    .bind(id)
+    .execute(&pool)
+    .await;
+    Json(())
+}
+
+async fn delete_ip_access_control(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> Json<()> {
+    let _ = sqlx::query("DELETE FROM ip_access_control WHERE id = ?")
+        .bind(id)
+        .execute(&pool)
+        .await;
+    Json(())
+}
+
+// Npub BAN管理エンドポイント
+
+async fn ban_npub(State(pool): State<SqlitePool>, Path(npub): Path<String>) -> Json<()> {
+    let _ = sqlx::query("UPDATE safelist SET banned = 1 WHERE npub = ?")
+        .bind(npub)
+        .execute(&pool)
+        .await;
+    Json(())
+}
+
+async fn unban_npub(State(pool): State<SqlitePool>, Path(npub): Path<String>) -> Json<()> {
+    let _ = sqlx::query("UPDATE safelist SET banned = 0 WHERE npub = ?")
+        .bind(npub)
+        .execute(&pool)
+        .await;
+    Json(())
+}
+
+// REQ Kindブラックリストエンドポイント
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReqKindBlacklistRow {
+    pub id: i64,
+    pub kind_value: Option<i64>,
+    pub kind_min: Option<i64>,
+    pub kind_max: Option<i64>,
+    pub enabled: bool,
+}
+
+async fn list_req_kind_blacklist(State(pool): State<SqlitePool>) -> Json<Vec<ReqKindBlacklistRow>> {
+    let rows = sqlx::query_as::<_, (i64, Option<i64>, Option<i64>, Option<i64>, i64)>(
+        "SELECT id, kind_value, kind_min, kind_max, enabled FROM req_kind_blacklist ORDER BY created_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    Json(
+        rows.into_iter()
+            .map(|(id, kind_value, kind_min, kind_max, enabled)| ReqKindBlacklistRow {
+                id,
+                kind_value,
+                kind_min,
+                kind_max,
+                enabled: enabled != 0,
+            })
+            .collect(),
+    )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateReqKindBlacklistBody {
+    pub kind_value: Option<i64>,
+    pub kind_min: Option<i64>,
+    pub kind_max: Option<i64>,
+    pub enabled: bool,
+}
+
+async fn create_req_kind_blacklist(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<CreateReqKindBlacklistBody>,
+) -> Json<()> {
+    let enabled = if body.enabled { 1i64 } else { 0i64 };
+    let _ = sqlx::query(
+        "INSERT INTO req_kind_blacklist (kind_value, kind_min, kind_max, enabled) VALUES (?, ?, ?, ?)",
+    )
+    .bind(body.kind_value)
+    .bind(body.kind_min)
+    .bind(body.kind_max)
+    .bind(enabled)
+    .execute(&pool)
+    .await;
+    Json(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateReqKindBlacklistBody {
+    pub kind_value: Option<i64>,
+    pub kind_min: Option<i64>,
+    pub kind_max: Option<i64>,
+    pub enabled: bool,
+}
+
+async fn update_req_kind_blacklist(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateReqKindBlacklistBody>,
+) -> Json<()> {
+    let enabled = if body.enabled { 1i64 } else { 0i64 };
+    let _ = sqlx::query(
+        "UPDATE req_kind_blacklist SET kind_value = ?, kind_min = ?, kind_max = ?, enabled = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(body.kind_value)
+    .bind(body.kind_min)
+    .bind(body.kind_max)
+    .bind(enabled)
+    .bind(id)
+    .execute(&pool)
+    .await;
+    Json(())
+}
+
+async fn delete_req_kind_blacklist(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> Json<()> {
+    let _ = sqlx::query("DELETE FROM req_kind_blacklist WHERE id = ?")
+        .bind(id)
+        .execute(&pool)
+        .await;
+    Json(())
+}
+
+// ログ・統計エンドポイント
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionLogRow {
+    pub id: i64,
+    pub ip_address: String,
+    pub connected_at: String,
+    pub disconnected_at: Option<String>,
+    pub event_count: i64,
+    pub rejected_event_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetConnectionLogsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+async fn get_connection_logs(
+    State(pool): State<SqlitePool>,
+    axum::extract::Query(params): axum::extract::Query<GetConnectionLogsQuery>,
+) -> Json<Vec<ConnectionLogRow>> {
+    let limit = params.limit.unwrap_or(100);
+    let offset = params.offset.unwrap_or(0);
+    let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, i64, i64)>(
+        "SELECT id, ip_address, connected_at, disconnected_at, event_count, rejected_event_count 
+         FROM connection_logs 
+         ORDER BY connected_at DESC 
+         LIMIT ? OFFSET ?",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    Json(
+        rows.into_iter()
+            .map(|(id, ip_address, connected_at, disconnected_at, event_count, rejected_event_count)| {
+                ConnectionLogRow {
+                    id,
+                    ip_address,
+                    connected_at,
+                    disconnected_at,
+                    event_count,
+                    rejected_event_count,
+                }
+            })
+            .collect(),
+    )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventRejectionLogRow {
+    pub id: i64,
+    pub event_id: String,
+    pub pubkey_hex: String,
+    pub npub: String,
+    pub ip_address: Option<String>,
+    pub kind: i64,
+    pub reason: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetEventRejectionLogsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+async fn get_event_rejection_logs(
+    State(pool): State<SqlitePool>,
+    axum::extract::Query(params): axum::extract::Query<GetEventRejectionLogsQuery>,
+) -> Json<Vec<EventRejectionLogRow>> {
+    let limit = params.limit.unwrap_or(100);
+    let offset = params.offset.unwrap_or(0);
+    let rows = sqlx::query_as::<_, (i64, String, String, String, Option<String>, i64, String, String)>(
+        "SELECT id, event_id, pubkey_hex, npub, ip_address, kind, reason, created_at 
+         FROM event_rejection_logs 
+         ORDER BY created_at DESC 
+         LIMIT ? OFFSET ?",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    Json(
+        rows.into_iter()
+            .map(|(id, event_id, pubkey_hex, npub, ip_address, kind, reason, created_at)| {
+                EventRejectionLogRow {
+                    id,
+                    event_id,
+                    pubkey_hex,
+                    npub,
+                    ip_address,
+                    kind,
+                    reason,
+                    created_at,
+                }
+            })
+            .collect(),
+    )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatsResponse {
+    pub total_connections: i64,
+    pub active_connections: i64,
+    pub total_rejections: i64,
+    pub rejections_by_reason: Vec<RejectionReasonCount>,
+    pub top_npubs_by_rejections: Vec<NpubRejectionCount>,
+    pub top_ips_by_rejections: Vec<IpRejectionCount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RejectionReasonCount {
+    pub reason: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NpubRejectionCount {
+    pub npub: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IpRejectionCount {
+    pub ip_address: String,
+    pub count: i64,
+}
+
+async fn get_stats(State(pool): State<SqlitePool>) -> Json<StatsResponse> {
+    // 総接続数
+    let total_connections: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM connection_logs")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0,));
+
+    // アクティブ接続数（切断時刻がNULL）
+    let active_connections: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM connection_logs WHERE disconnected_at IS NULL")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0,));
+
+    // 総拒否数
+    let total_rejections: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM event_rejection_logs")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or((0,));
+
+    // 拒否理由別の内訳
+    let rejections_by_reason_rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT reason, COUNT(*) as count FROM event_rejection_logs GROUP BY reason ORDER BY count DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    let rejections_by_reason: Vec<RejectionReasonCount> = rejections_by_reason_rows
+        .into_iter()
+        .map(|(reason, count)| RejectionReasonCount { reason, count })
+        .collect();
+
+    // トップNpub（拒否数順）
+    let top_npubs_rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT npub, COUNT(*) as count FROM event_rejection_logs GROUP BY npub ORDER BY count DESC LIMIT 10",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    let top_npubs_by_rejections: Vec<NpubRejectionCount> = top_npubs_rows
+        .into_iter()
+        .map(|(npub, count)| NpubRejectionCount { npub, count })
+        .collect();
+
+    // トップIP（拒否数順）
+    let top_ips_rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT ip_address, COUNT(*) as count FROM event_rejection_logs WHERE ip_address IS NOT NULL GROUP BY ip_address ORDER BY count DESC LIMIT 10",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    let top_ips_by_rejections: Vec<IpRejectionCount> = top_ips_rows
+        .into_iter()
+        .map(|(ip_address, count)| IpRejectionCount { ip_address, count })
+        .collect();
+
+    Json(StatsResponse {
+        total_connections: total_connections.0,
+        active_connections: active_connections.0,
+        total_rejections: total_rejections.0,
+        rejections_by_reason,
+        top_npubs_by_rejections,
+        top_ips_by_rejections,
+    })
+}

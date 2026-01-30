@@ -4,12 +4,21 @@ Nostrプロトコル用のプロキシリレーサーバー。Botや不要な投
 
 ## 機能
 
+### コア機能
 - **プロキシリレー機能**: クライアントとバックエンドリレー間のプロキシとして動作
 - **イベントフィルタリング**: Kind 6（リポスト）やKind 7（リアクション）のBot投稿を自動検出・ブロック
 - **セーフリスト機能**: 特定のnpubからの投稿を許可、またはフィルタをバイパス
 - **自然言語ルール**: 日本語でフィルタ条件を記述可能
 - **管理UI**: ReactベースのWeb管理画面（`/config`）
 - **Basic認証**: 管理画面へのアクセス保護
+
+### Bot対策・マネジメント機能（v0.2.0〜）
+- **IPアドレス管理**: IPアドレス単位でのBAN/ホワイトリスト管理
+- **NpubのBAN**: 迷惑ユーザーのNpubをBAN
+- **Kind ブラックリスト**: 特定のKind値またはKind範囲をブロック
+- **接続ログ**: 接続情報（IP、接続時刻、切断時刻）を記録
+- **拒否ログ**: 拒否されたイベントの詳細（理由、Npub、IP、Kind）を記録
+- **統計情報**: 接続数、拒否数、拒否理由別内訳、トップNpub/IPの表示
 
 ## フィルタリングロジック
 
@@ -103,7 +112,14 @@ cd proxy-nostr-relay
 cargo build --release
 ```
 
-### 3. フロントエンドのビルド（開発時）
+### 3. 環境変数の設定
+
+```bash
+cp .env.example .env
+# .envを編集して必要な値を設定
+```
+
+### 4. フロントエンドのビルド
 
 ```bash
 cd web
@@ -113,12 +129,35 @@ npm run build
 
 ビルドされたファイルは`web/dist`に出力されます。
 
+## 開発モード（ホットリロード）
+
+フロントエンドの変更を即座に反映させたい場合は、開発モードで起動します。
+
+### ターミナル1: バックエンド
+
+```bash
+# .envを読み込んで起動
+source .env && cargo run
+```
+
+### ターミナル2: フロントエンド（開発サーバー）
+
+```bash
+cd web
+npm run dev
+```
+
+フロントエンド開発サーバーは `http://localhost:3000` で起動し、APIリクエストは自動的にバックエンド（`http://127.0.0.1:8080`）にプロキシされます。
+
+**注意**: 開発モードでは `http://localhost:3000/` にアクセスしてください。
+
 ## 環境変数
 
 以下の環境変数を設定してください：
 
 | 変数名 | 説明 | 必須 | デフォルト値 |
 |--------|------|------|-------------|
+| `ENV` | 環境モード（LOCAL/PROD） | ❌ | - |
 | `ADMIN_USER` | 管理画面のユーザー名 | ✅ | - |
 | `ADMIN_PASS` | 管理画面のパスワード | ✅ | - |
 | `DATABASE_URL` | SQLiteデータベースのURL | ❌ | `sqlite:data/app.sqlite` |
@@ -236,6 +275,8 @@ sudo systemctl start proxy-nostr-relay
 - **`GET /api/safelist`**: セーフリストの一覧取得
 - **`POST /api/safelist`**: セーフリストへの追加・更新
 - **`DELETE /api/safelist/:npub`**: セーフリストからの削除
+- **`PUT /api/safelist/:npub/ban`**: NpubをBAN
+- **`PUT /api/safelist/:npub/unban`**: NpubのBAN解除
 
 #### フィルタルール管理
 
@@ -244,6 +285,26 @@ sudo systemctl start proxy-nostr-relay
 - **`PUT /api/filters/:id`**: フィルタルールの更新
 - **`DELETE /api/filters/:id`**: フィルタルールの削除
 - **`POST /api/filters/parse`**: 自然言語テキストをフィルタルールにパース
+
+#### IP管理
+
+- **`GET /api/ip-access-control`**: IP一覧取得
+- **`POST /api/ip-access-control`**: IP追加（BAN/ホワイトリスト）
+- **`PUT /api/ip-access-control/:id`**: IP更新
+- **`DELETE /api/ip-access-control/:id`**: IP削除
+
+#### Kindブラックリスト
+
+- **`GET /api/req-kind-blacklist`**: ブラックリスト一覧取得
+- **`POST /api/req-kind-blacklist`**: ブラックリスト追加
+- **`PUT /api/req-kind-blacklist/:id`**: ブラックリスト更新（有効/無効切り替え）
+- **`DELETE /api/req-kind-blacklist/:id`**: ブラックリスト削除
+
+#### ログ・統計
+
+- **`GET /api/connection-logs`**: 接続ログ取得（ページネーション対応）
+- **`GET /api/event-rejection-logs`**: 拒否ログ取得（ページネーション対応）
+- **`GET /api/stats`**: 統計情報取得（接続数、拒否数、トップNpub/IPなど）
 
 #### 管理画面
 

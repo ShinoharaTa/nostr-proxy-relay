@@ -9,14 +9,41 @@ use crate::filter::engine::FilterEngine;
 
 /// One backend relay connection per client websocket connection (initial implementation).
 pub async fn proxy_ws(client_ws: WebSocket, backend_url: String) -> anyhow::Result<()> {
-    proxy_ws_with_pool(client_ws, backend_url, None).await
+    proxy_ws_with_pool(client_ws, backend_url, None, None).await
 }
 
 pub async fn proxy_ws_with_pool(
     client_ws: WebSocket,
     backend_url: String,
     pool: Option<SqlitePool>,
+    client_ip: Option<String>,
 ) -> anyhow::Result<()> {
+    // IP BANチェック
+    if let (Some(pool), Some(ip)) = (&pool, &client_ip) {
+        if is_ip_banned(pool, ip).await? {
+            tracing::warn!(ip = %ip, "IP banned, rejecting connection");
+            return Ok(());
+        }
+    }
+
+    // 接続ログ記録
+    let connection_log_id = if let (Some(pool), Some(ip)) = (&pool, &client_ip) {
+        let result = sqlx::query(
+            "INSERT INTO connection_logs (ip_address) VALUES (?) RETURNING id"
+        )
+        .bind(ip)
+        .fetch_optional(pool)
+        .await;
+        match result {
+            Ok(Some(row)) => {
+                use sqlx::Row;
+                Some(row.get::<i64, _>("id"))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
     let (backend_ws, _resp) =
         connect_async(&backend_url).await.with_context(|| format!("connect {backend_url}"))?;
 
@@ -133,6 +160,27 @@ pub async fn proxy_ws_with_pool(
 
     drop(client_out_tx);
     let _ = client_sender.await;
+
+    // 接続ログ更新（切断時刻）
+    if let (Some(pool), Some(log_id)) = (&pool, connection_log_id) {
+        let _ = sqlx::query(
+            "UPDATE connection_logs SET disconnected_at = datetime('now') WHERE id = ?"
+        )
+        .bind(log_id)
+        .execute(pool)
+        .await;
+    }
+
     Ok(())
 }
 
+/// IPアドレスがBANされているか確認
+async fn is_ip_banned(pool: &SqlitePool, ip: &str) -> anyhow::Result<bool> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT banned FROM ip_access_control WHERE ip_address = ?"
+    )
+    .bind(ip)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(banned,)| banned == 1).unwrap_or(false))
+}
