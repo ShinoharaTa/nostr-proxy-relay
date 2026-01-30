@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# Database
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/data/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Node modules (for web frontend)
+web/node_modules/
+web/dist/
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
