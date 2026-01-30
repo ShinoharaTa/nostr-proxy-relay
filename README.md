@@ -161,8 +161,9 @@ npm run dev
 | `ADMIN_USER` | 管理画面のユーザー名 | ✅ | - |
 | `ADMIN_PASS` | 管理画面のパスワード | ✅ | - |
 | `DATABASE_URL` | SQLiteデータベースのURL | ❌ | `sqlite:data/app.sqlite` |
-| `BACKEND_RELAY_URL` | バックエンドリレーのURL | ❌ | `wss://relay.damus.io` |
 | `RUST_LOG` | ログレベル（オプション） | ❌ | `info` |
+
+> **注意**: バックエンドリレーは管理画面（`/config`）から設定してください。
 
 ### 環境変数の設定例
 
@@ -170,7 +171,6 @@ npm run dev
 export ADMIN_USER=admin
 export ADMIN_PASS=your-secure-password
 export DATABASE_URL=sqlite:data/app.sqlite
-export BACKEND_RELAY_URL=wss://relay.damus.io
 export RUST_LOG=info
 ```
 
@@ -216,11 +216,14 @@ cargo build --release
 # 環境変数を設定
 export ADMIN_USER=admin
 export ADMIN_PASS=your-secure-password
-export BACKEND_RELAY_URL=wss://your-backend-relay.com
 
 # 実行
 ./target/release/proxy-nostr-relay
 ```
+
+3. **初期設定**
+
+サーバー起動後、管理画面（`/config`）にアクセスしてバックエンドリレーを設定してください。
 
 ### systemdサービスとして実行（Linux）
 
@@ -238,13 +241,14 @@ WorkingDirectory=/path/to/proxy-nostr-relay
 Environment="ADMIN_USER=admin"
 Environment="ADMIN_PASS=your-secure-password"
 Environment="DATABASE_URL=sqlite:data/app.sqlite"
-Environment="BACKEND_RELAY_URL=wss://relay.damus.io"
 ExecStart=/path/to/proxy-nostr-relay/target/release/proxy-nostr-relay
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **注意**: バックエンドリレーはサービス起動後、管理画面（`/config`）から設定してください。
 
 サービスを有効化：
 

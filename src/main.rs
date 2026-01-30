@@ -17,6 +17,19 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_http::services::{ServeDir, ServeFile};
+use sqlx::SqlitePool;
+
+/// DBから有効なバックエンドリレーURLを取得
+async fn get_backend_relay_url(pool: &SqlitePool) -> String {
+    let result: Option<(String,)> = sqlx::query_as(
+        "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC LIMIT 1"
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+    
+    result.map(|(url,)| url).unwrap_or_default()
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -40,9 +53,6 @@ async fn main() -> anyhow::Result<()> {
     auth::ensure_admin_user(&pool, &admin_user, &admin_pass).await?;
 
     tracing::info!("db migrated ok");
-
-    let backend_url = std::env::var("BACKEND_RELAY_URL")
-        .unwrap_or_else(|_| "wss://relay.damus.io".to_string());
 
     // Serve React admin UI from web/dist
     // For SPA: serve static files if they exist, otherwise serve index.html
@@ -79,14 +89,18 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/",
             get({
-                let backend_url = backend_url.clone();
                 let pool = pool.clone();
                 move |ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
-                    let backend_url = backend_url.clone();
                     let pool = pool.clone();
                     let client_ip = addr.ip().to_string();
                     async move {
                         ws.on_upgrade(move |socket| async move {
+                            // DBから有効なリレーURLを取得
+                            let backend_url = get_backend_relay_url(&pool).await;
+                            if backend_url.is_empty() {
+                                tracing::warn!("No backend relay configured");
+                                return;
+                            }
                             if let Err(e) =
                                 crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip)).await
                             {
