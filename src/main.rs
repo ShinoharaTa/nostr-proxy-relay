@@ -9,8 +9,9 @@ mod api;
 use db::{connect, migrate::migrate};
 use anyhow::Context;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use axum::{extract::ws::WebSocketUpgrade, routing::get, Router};
+use axum::{extract::ws::WebSocketUpgrade, routing::get, Router, response::{Html, IntoResponse}};
 use std::net::SocketAddr;
+use tower_http::services::{ServeDir, ServeFile};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,11 +39,30 @@ async fn main() -> anyhow::Result<()> {
     let backend_url = std::env::var("BACKEND_RELAY_URL")
         .unwrap_or_else(|_| "wss://relay.damus.io".to_string());
 
+    // Serve React admin UI from web/dist
+    // For SPA: serve static files if they exist, otherwise serve index.html
+    let index_html = std::fs::read_to_string("web/dist/index.html")
+        .unwrap_or_else(|_| "<html><body>Admin UI not found. Please build the web app.</body></html>".to_string());
+    
+    // Serve static files from web/dist
+    // Use fallback to serve index.html for SPA routing
+    let static_dir = ServeDir::new("web/dist")
+        .fallback(tower::service_fn({
+            let html = index_html.clone();
+            move |_req| {
+                let html = html.clone();
+                async move {
+                    Ok::<_, std::convert::Infallible>(Html(html).into_response())
+                }
+            }
+        }));
+    
     let protected = Router::new()
-        .route(
-            "/config",
-            get(|| async { "config ui (placeholder)" }),
-        )
+        // index.html が `/assets/...` と `/vite.svg` を参照するため、/config だけでなくそれらも配信する
+        // いずれも管理UIの一部なので Basic 認証で保護する
+        .nest_service("/assets", ServeDir::new("web/dist/assets"))
+        .route_service("/vite.svg", ServeFile::new("web/dist/vite.svg"))
+        .nest_service("/config", static_dir)
         .layer(axum::middleware::from_fn_with_state(
             pool.clone(),
             auth::basic_auth,

@@ -17,6 +17,70 @@ Nostrプロトコル用のプロキシリレーサーバー。Botや不要な投
 - **キャッシュミス時の動作**: 参照先イベントがキャッシュにない場合（1秒以上経過している可能性）、イベントを通過
 - **ホワイトリスト**: セーフリストに登録されたnpubはフィルタをバイパス
 
+## クイックスタート（動作テスト用）
+
+### 1. 環境変数を設定してサーバーを起動
+
+```bash
+# 必須の環境変数を設定
+export ADMIN_USER=admin
+export ADMIN_PASS=your-password
+
+# サーバーを起動（開発モード）
+cargo run
+```
+
+サーバーは `ws://127.0.0.1:8080/` で起動します。
+
+### 2. 自分のNostrアカウントをセーフリストに追加
+
+EVENT（投稿）を送信するには、自分のnpubをセーフリストに追加する必要があります。
+
+```bash
+# Basic認証ヘッダーを設定
+AUTH_HEADER="Basic $(echo -n 'admin:your-password' | base64)"
+
+# 自分のnpubをセーフリストに追加（投稿を許可）
+curl -X POST \
+  -H "Authorization: $AUTH_HEADER" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"npub\": \"YOUR_NPUB_HERE\",
+    \"flags\": 1,
+    \"memo\": \"自分のアカウント\"
+  }" \
+  http://localhost:8080/api/safelist
+```
+
+**重要**: `YOUR_NPUB_HERE`を自分のnpubに置き換えてください。
+
+### 3. Nostrクライアントで接続
+
+Nostrクライアント（Amethyst、Damus、Snortなど）のリレー設定に以下を追加：
+
+```
+ws://127.0.0.1:8080/
+```
+
+または、コマンドラインでテスト：
+
+```bash
+# WebSocket接続のテスト（例）
+wscat -c ws://127.0.0.1:8080/
+```
+
+### 4. 動作確認
+
+- **REQ（読み取り）**: 公開されているため、認証なしで利用可能
+- **EVENT（投稿）**: セーフリストに登録したnpubからのみ投稿可能
+- **フィルタリング**: Kind 6/7のBot投稿が自動的にブロックされます
+
+### トラブルシューティング
+
+- サーバーが起動しない場合: `ADMIN_USER`と`ADMIN_PASS`が設定されているか確認
+- EVENTが拒否される場合: セーフリストに自分のnpubが正しく追加されているか確認
+- ログを確認: `export RUST_LOG=debug`で詳細なログを有効化
+
 ## 必要な環境
 
 - **Rust**: 1.70以上（[rustup](https://rustup.rs/)でインストール可能）
