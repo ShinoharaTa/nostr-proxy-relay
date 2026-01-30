@@ -33,6 +33,9 @@ async fn get_backend_relay_url(pool: &SqlitePool) -> String {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // .envファイルを読み込む（存在しなくてもエラーにならない）
+    let _ = dotenvy::dotenv();
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .with(tracing_subscriber::fmt::layer())
