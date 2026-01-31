@@ -5,6 +5,7 @@ mod filter;
 mod parser;
 mod auth;
 mod api;
+mod docs;
 
 use db::{connect, migrate::migrate};
 use anyhow::Context;
@@ -46,8 +47,12 @@ async fn main() -> anyhow::Result<()> {
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data/app.sqlite".to_string());
 
     std::fs::create_dir_all("data")?;
-    // ensure file exists for sqlite file-mode urls
-    let _ = std::fs::File::create("data/app.sqlite");
+    // SQLiteは自動的にファイルを作成するため、既存ファイルを空にしないように注意
+    // ファイルが存在しない場合のみ作成する
+    let db_path = "data/app.sqlite";
+    if !std::path::Path::new(db_path).exists() {
+        let _ = std::fs::File::create(db_path);
+    }
     let pool = connect(&db_url).await?;
     migrate(&pool).await?;
 
@@ -89,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .merge(protected)
         .nest("/api", api::routes::router(pool.clone()))
+        .nest("/docs", docs::router())
         .route(
             "/",
             get({
@@ -96,18 +102,23 @@ async fn main() -> anyhow::Result<()> {
                 move |ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
                     let pool = pool.clone();
                     let client_ip = addr.ip().to_string();
+                    let client_ip_log = client_ip.clone();
+                    tracing::info!(ip = %client_ip_log, "WebSocket upgrade request received");
                     async move {
                         ws.on_upgrade(move |socket| async move {
                             // DBから有効なリレーURLを取得
                             let backend_url = get_backend_relay_url(&pool).await;
                             if backend_url.is_empty() {
-                                tracing::warn!("No backend relay configured");
+                                tracing::warn!(ip = %client_ip, "No backend relay configured, closing connection");
                                 return;
                             }
+                            tracing::info!(ip = %client_ip, backend_url = %backend_url, "Starting WebSocket proxy");
                             if let Err(e) =
-                                crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip)).await
+                                crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip.clone())).await
                             {
-                                tracing::warn!(error = %e, "ws proxy ended with error");
+                                tracing::warn!(ip = %client_ip, error = %e, "WebSocket proxy ended with error");
+                            } else {
+                                tracing::info!(ip = %client_ip, "WebSocket proxy ended normally");
                             }
                         })
                     }
