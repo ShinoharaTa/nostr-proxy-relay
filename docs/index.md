@@ -1,57 +1,70 @@
-# Proxy Nostr Relay Documentation
+# ドキュメント
 
-Proxy Nostr Relayのドキュメントへようこそ。
+Proxy Nostr Relayの詳細な機能説明とセットアップガイドです。
 
-## ドキュメント一覧
+## 目次
 
-### API仕様
+- [Filter Query Language仕様](filter-query) — フィルタルールの記述方法
 
-- [Filter Query Language](filter-query) - フィルタークエリ言語の仕様
-
-### クイックリンク
-
-- [GitHub Repository](https://github.com/your-repo/proxy-nostr-relay)
-- [Nostr Protocol NIPs](https://github.com/nostr-protocol/nips)
+---
 
 ## 概要
 
-Proxy Nostr Relayは、Nostrプロトコル用のプロキシリレーサーバーです。
-
-### 主な機能
-
-- **プロキシリレー機能**: クライアントとバックエンドリレー間のプロキシとして動作
-- **イベントフィルタリング**: 柔軟なDSLでフィルタルールを設定
-- **Bot対策**: 自動Bot検出とブロック
-- **セーフリスト**: 信頼できるユーザーのホワイトリスト管理
-- **管理UI**: Webベースの管理画面
-
-### フィルタリングの仕組み
+Proxy Nostr Relayは、クライアントとバックエンドリレーの間に配置するプロキシサーバーです。
 
 ```
 クライアント → Proxy Relay → バックエンドリレー
                     ↓
               フィルタエンジン
-                    ↓
-              ・IP BAN チェック
-              ・Npub BAN チェック
-              ・Kind ブラックリスト
-              ・カスタムフィルタルール
-              ・Bot検出ルール
 ```
 
-## 管理画面
+フィルタエンジンが以下の順序でイベントをチェックし、条件に一致したものをブロックします：
 
-管理画面は `/config` でアクセスできます（Basic認証が必要）。
+1. IP BANチェック
+2. Npub BANチェック
+3. Kindブラックリスト
+4. カスタムフィルタルール
+5. Bot検出ルール
 
-### 設定項目
+---
 
-1. **Relay Settings** - バックエンドリレーの設定
-2. **Safelist** - 許可リスト管理
-3. **Filter Rules** - フィルタルール管理
-4. **IP Access Control** - IP管理
-5. **Kind Blacklist** - Kindブラックリスト
-6. **Logs** - 接続ログ・拒否ログ
+## 機能一覧
 
-## サポート
+### プロキシリレー
+クライアントからの接続を受け付け、バックエンドリレーに中継します。複数のバックエンドリレーを設定可能です。
 
-問題や質問がある場合は、GitHubのIssuesでお知らせください。
+### Bot検出
+Kind 6（リポスト）やKind 7（リアクション）で、参照先イベントと同じ`created_at`を持つ投稿をBot判定してブロックします。
+
+### Filter Query Language
+SQLライクな構文でフィルタ条件を記述できるDSLです。正規表現、タグベースフィルタ、複合条件（AND/OR/NOT）をサポートしています。
+
+詳細は [Filter Query Language仕様](filter-query) を参照してください。
+
+### セーフリスト
+信頼できるnpubを登録し、以下の権限を付与できます：
+
+| フラグ | 説明 |
+|--------|------|
+| `post_allowed` (1) | EVENTの投稿を許可 |
+| `filter_bypass` (2) | フィルタをバイパス |
+| 両方 (3) | 上記両方を許可 |
+
+### IPアドレス管理
+IPアドレス単位でBAN/ホワイトリストを設定できます。
+
+### Kindブラックリスト
+特定のKind値またはKind範囲（例: 10000-19999）をブロックできます。
+
+### ログ・統計
+- **接続ログ**: IP、接続時刻、切断時刻、イベント数を記録
+- **拒否ログ**: 拒否されたイベントのID、npub、IP、Kind、理由を記録
+- **統計情報**: 接続数、拒否数、拒否理由別内訳、トップnpub/IPを表示
+
+---
+
+## 外部リンク
+
+- [GitHub Repository](https://github.com/ShinoharaTa/nostr-proxy-relay)
+- [Nostr Protocol NIPs](https://github.com/nostr-protocol/nips)
+- [NIP-01: Basic protocol flow](https://github.com/nostr-protocol/nips/blob/master/01.md)

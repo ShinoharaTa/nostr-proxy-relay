@@ -170,6 +170,8 @@ npm run dev
 | `ADMIN_USER` | 管理画面のユーザー名 | ✅ | - |
 | `ADMIN_PASS` | 管理画面のパスワード | ✅ | - |
 | `DATABASE_URL` | SQLiteデータベースのURL | ❌ | `sqlite:data/app.sqlite` |
+| `RELAY_URL` | ランディングページに表示するリレーURL | ❌ | `wss://your-relay.example.com` |
+| `GITHUB_URL` | ランディングページに表示するGitHubリポジトリURL | ❌ | `https://github.com/ShinoharaTa/nostr-proxy-relay` |
 | `RUST_LOG` | ログレベル（オプション） | ❌ | `info` |
 
 > **注意**: バックエンドリレーは管理画面（`/config`）から設定してください。
@@ -180,6 +182,8 @@ npm run dev
 export ADMIN_USER=admin
 export ADMIN_PASS=your-secure-password
 export DATABASE_URL=sqlite:data/app.sqlite
+export RELAY_URL=wss://your-relay.example.com
+export GITHUB_URL=https://github.com/ShinoharaTa/nostr-proxy-relay
 export RUST_LOG=info
 ```
 

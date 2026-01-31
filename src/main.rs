@@ -62,6 +62,12 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("db migrated ok");
 
+    // Landing page configuration from environment variables
+    let landing_config = docs::LandingPageConfig {
+        relay_url: std::env::var("RELAY_URL").unwrap_or_else(|_| "wss://your-relay.example.com".to_string()),
+        github_url: std::env::var("GITHUB_URL").unwrap_or_else(|_| "https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
+    };
+
     // Serve React admin UI from web/dist
     // For SPA: serve static files if they exist, otherwise serve index.html
     let index_html = std::fs::read_to_string("web/dist/index.html")
@@ -99,28 +105,38 @@ async fn main() -> anyhow::Result<()> {
             "/",
             get({
                 let pool = pool.clone();
-                move |ws: WebSocketUpgrade, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
+                let landing_config = landing_config.clone();
+                move |ws: Option<WebSocketUpgrade>, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
                     let pool = pool.clone();
+                    let landing_config = landing_config.clone();
                     let client_ip = addr.ip().to_string();
-                    let client_ip_log = client_ip.clone();
-                    tracing::info!(ip = %client_ip_log, "WebSocket upgrade request received");
                     async move {
-                        ws.on_upgrade(move |socket| async move {
-                            // DBから有効なリレーURLを取得
-                            let backend_url = get_backend_relay_url(&pool).await;
-                            if backend_url.is_empty() {
-                                tracing::warn!(ip = %client_ip, "No backend relay configured, closing connection");
-                                return;
+                        match ws {
+                            Some(ws) => {
+                                // WebSocket接続の場合
+                                tracing::info!(ip = %client_ip, "WebSocket upgrade request received");
+                                ws.on_upgrade(move |socket| async move {
+                                    // DBから有効なリレーURLを取得
+                                    let backend_url = get_backend_relay_url(&pool).await;
+                                    if backend_url.is_empty() {
+                                        tracing::warn!(ip = %client_ip, "No backend relay configured, closing connection");
+                                        return;
+                                    }
+                                    tracing::info!(ip = %client_ip, backend_url = %backend_url, "Starting WebSocket proxy");
+                                    if let Err(e) =
+                                        crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip.clone())).await
+                                    {
+                                        tracing::warn!(ip = %client_ip, error = %e, "WebSocket proxy ended with error");
+                                    } else {
+                                        tracing::info!(ip = %client_ip, "WebSocket proxy ended normally");
+                                    }
+                                }).into_response()
                             }
-                            tracing::info!(ip = %client_ip, backend_url = %backend_url, "Starting WebSocket proxy");
-                            if let Err(e) =
-                                crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip.clone())).await
-                            {
-                                tracing::warn!(ip = %client_ip, error = %e, "WebSocket proxy ended with error");
-                            } else {
-                                tracing::info!(ip = %client_ip, "WebSocket proxy ended normally");
+                            None => {
+                                // HTTP GETの場合はランディングページを表示
+                                docs::serve_landing_page(&landing_config).into_response()
                             }
-                        })
+                        }
                     }
                 }
             }),
