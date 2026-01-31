@@ -714,3 +714,115 @@ input[type="radio"] {
   background: var(--bg-hover);
   color: var(--text-muted);
 }
+
+/* Form Grid (for NIP-11 settings) */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.form-group label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.form-group input,
+.form-group textarea {
+  padding: 0.625rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.form-group.checkbox-group {
+  flex-direction: row;
+  gap: 1.5rem;
+  align-items: center;
+  padding-top: 0.5rem;
+}
+
+.form-group.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-transform: none;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.form-actions button {
+  padding: 0.625rem 1.5rem;
+}
+
+.form-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.success-msg {
+  color: var(--success);
+  font-size: 13px;
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.section p code {
+  background: var(--bg-input);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--cyan);
+}
+
+.info-box code {
+  background: var(--bg-input);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--cyan);
+}
+
+.info-box p + p {
+  margin-top: 0.5rem;
+}

@@ -68,7 +68,25 @@ interface Stats {
   top_ips_by_rejections: { ip_address: string; count: number }[];
 }
 
-type Tab = 'dashboard' | 'relays' | 'safelist' | 'ip' | 'kind' | 'filters' | 'logs';
+interface RelayInfo {
+  name?: string;
+  description?: string;
+  pubkey?: string;
+  contact?: string;
+  supported_nips?: string;
+  software?: string;
+  version?: string;
+  limitation_max_message_length?: number;
+  limitation_max_subscriptions?: number;
+  limitation_max_filters?: number;
+  limitation_max_event_tags?: number;
+  limitation_max_content_length?: number;
+  limitation_auth_required: boolean;
+  limitation_payment_required: boolean;
+  icon?: string;
+}
+
+type Tab = 'dashboard' | 'relays' | 'relay-info' | 'safelist' | 'ip' | 'kind' | 'filters' | 'logs';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -84,6 +102,9 @@ function App() {
         </button>
         <button className={activeTab === 'relays' ? 'active' : ''} onClick={() => setActiveTab('relays')}>
           Relay Settings
+        </button>
+        <button className={activeTab === 'relay-info' ? 'active' : ''} onClick={() => setActiveTab('relay-info')}>
+          NIP-11 Info
         </button>
         <button className={activeTab === 'safelist' ? 'active' : ''} onClick={() => setActiveTab('safelist')}>
           Npub Management
@@ -105,6 +126,7 @@ function App() {
         <div className="container-fluid">
           {activeTab === 'dashboard' && <DashboardSection />}
           {activeTab === 'relays' && <RelaysSection />}
+          {activeTab === 'relay-info' && <RelayInfoSection />}
           {activeTab === 'safelist' && <SafelistSection />}
           {activeTab === 'ip' && <IpSection />}
           {activeTab === 'kind' && <KindBlacklistSection />}
@@ -352,6 +374,223 @@ function RelaysSection() {
       <div className="info-box">
         <h4>ℹ️ Note</h4>
         <p>The first enabled relay will be used as the backend. Currently, only one relay is used at a time.</p>
+      </div>
+    </div>
+  );
+}
+
+// Relay Info Section (NIP-11)
+function RelayInfoSection() {
+  const [info, setInfo] = useState<RelayInfo>({
+    name: '',
+    description: '',
+    pubkey: '',
+    contact: '',
+    supported_nips: '[1, 11]',
+    software: 'https://github.com/ShinoharaTa/nostr-proxy-relay',
+    version: '0.1.0',
+    limitation_auth_required: false,
+    limitation_payment_required: false,
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    fetch('/api/relay-info')
+      .then(res => res.json())
+      .then(data => { setInfo(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const saveInfo = () => {
+    setSaving(true);
+    setMessage('');
+    fetch('/api/relay-info', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(info)
+    })
+      .then(() => {
+        setMessage('Saved successfully!');
+        setSaving(false);
+        setTimeout(() => setMessage(''), 3000);
+      })
+      .catch(() => {
+        setMessage('Failed to save');
+        setSaving(false);
+      });
+  };
+
+  if (loading) return <div className="loading">Loading...</div>;
+
+  return (
+    <div className="section">
+      <h2>NIP-11 Relay Information</h2>
+      <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+        Configure the relay information document returned when clients request <code>Accept: application/nostr+json</code>
+      </p>
+
+      <div className="form-grid">
+        <div className="form-group">
+          <label>Relay Name</label>
+          <input 
+            value={info.name || ''} 
+            onChange={e => setInfo({ ...info, name: e.target.value })}
+            placeholder="My Proxy Relay"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Description</label>
+          <textarea 
+            value={info.description || ''} 
+            onChange={e => setInfo({ ...info, description: e.target.value })}
+            placeholder="A proxy relay with bot filtering capabilities"
+            rows={3}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Admin Pubkey (hex)</label>
+          <input 
+            value={info.pubkey || ''} 
+            onChange={e => setInfo({ ...info, pubkey: e.target.value })}
+            placeholder="32-byte hex public key"
+            style={{ fontFamily: 'monospace' }}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Contact</label>
+          <input 
+            value={info.contact || ''} 
+            onChange={e => setInfo({ ...info, contact: e.target.value })}
+            placeholder="nostr:npub1... or admin@example.com"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Supported NIPs (JSON array)</label>
+          <input 
+            value={info.supported_nips || ''} 
+            onChange={e => setInfo({ ...info, supported_nips: e.target.value })}
+            placeholder="[1, 11, 50]"
+            style={{ fontFamily: 'monospace' }}
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Software URL</label>
+          <input 
+            value={info.software || ''} 
+            onChange={e => setInfo({ ...info, software: e.target.value })}
+            placeholder="https://github.com/..."
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Version</label>
+          <input 
+            value={info.version || ''} 
+            onChange={e => setInfo({ ...info, version: e.target.value })}
+            placeholder="0.1.0"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Icon URL</label>
+          <input 
+            value={info.icon || ''} 
+            onChange={e => setInfo({ ...info, icon: e.target.value })}
+            placeholder="https://example.com/icon.png"
+          />
+        </div>
+      </div>
+
+      <h3 style={{ marginTop: '2rem' }}>Limitations (Optional)</h3>
+      <div className="form-grid">
+        <div className="form-group">
+          <label>Max Message Length</label>
+          <input 
+            type="number"
+            value={info.limitation_max_message_length || ''} 
+            onChange={e => setInfo({ ...info, limitation_max_message_length: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="16384"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Max Subscriptions</label>
+          <input 
+            type="number"
+            value={info.limitation_max_subscriptions || ''} 
+            onChange={e => setInfo({ ...info, limitation_max_subscriptions: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="20"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Max Filters</label>
+          <input 
+            type="number"
+            value={info.limitation_max_filters || ''} 
+            onChange={e => setInfo({ ...info, limitation_max_filters: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="10"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Max Event Tags</label>
+          <input 
+            type="number"
+            value={info.limitation_max_event_tags || ''} 
+            onChange={e => setInfo({ ...info, limitation_max_event_tags: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="100"
+          />
+        </div>
+
+        <div className="form-group">
+          <label>Max Content Length</label>
+          <input 
+            type="number"
+            value={info.limitation_max_content_length || ''} 
+            onChange={e => setInfo({ ...info, limitation_max_content_length: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="8196"
+          />
+        </div>
+
+        <div className="form-group checkbox-group">
+          <label>
+            <input 
+              type="checkbox"
+              checked={info.limitation_auth_required} 
+              onChange={e => setInfo({ ...info, limitation_auth_required: e.target.checked })}
+            />
+            Auth Required
+          </label>
+          <label>
+            <input 
+              type="checkbox"
+              checked={info.limitation_payment_required} 
+              onChange={e => setInfo({ ...info, limitation_payment_required: e.target.checked })}
+            />
+            Payment Required
+          </label>
+        </div>
+      </div>
+
+      <div className="form-actions">
+        <button onClick={saveInfo} disabled={saving}>
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+        {message && <span className={message.includes('success') ? 'success-msg' : 'error-msg'}>{message}</span>}
+      </div>
+
+      <div className="info-box" style={{ marginTop: '2rem' }}>
+        <h4>ℹ️ NIP-11</h4>
+        <p>This information is returned when clients request the relay with <code>Accept: application/nostr+json</code> header.</p>
+        <p>Test it: <code>curl -H "Accept: application/nostr+json" https://your-relay.example.com</code></p>
       </div>
     </div>
   );

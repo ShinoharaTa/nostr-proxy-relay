@@ -25,6 +25,7 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/connection-logs", get(get_connection_logs))
         .route("/event-rejection-logs", get(get_event_rejection_logs))
         .route("/stats", get(get_stats))
+        .route("/relay-info", get(get_relay_info).put(put_relay_info))
         .with_state(pool.clone())
         .layer(axum::middleware::from_fn_with_state(pool, auth::basic_auth))
 }
@@ -682,4 +683,127 @@ async fn get_stats(State(pool): State<SqlitePool>) -> Json<StatsResponse> {
         top_npubs_by_rejections,
         top_ips_by_rejections,
     })
+}
+
+// NIP-11 Relay Information
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayInfoRow {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub pubkey: Option<String>,
+    pub contact: Option<String>,
+    pub supported_nips: Option<String>,
+    pub software: Option<String>,
+    pub version: Option<String>,
+    pub limitation_max_message_length: Option<i64>,
+    pub limitation_max_subscriptions: Option<i64>,
+    pub limitation_max_filters: Option<i64>,
+    pub limitation_max_event_tags: Option<i64>,
+    pub limitation_max_content_length: Option<i64>,
+    pub limitation_auth_required: bool,
+    pub limitation_payment_required: bool,
+    pub icon: Option<String>,
+}
+
+async fn get_relay_info(State(pool): State<SqlitePool>) -> Json<RelayInfoRow> {
+    let row = sqlx::query_as::<_, (
+        Option<String>, Option<String>, Option<String>, Option<String>, Option<String>,
+        Option<String>, Option<String>, Option<i64>, Option<i64>, Option<i64>,
+        Option<i64>, Option<i64>, i64, i64, Option<String>,
+    )>(
+        "SELECT name, description, pubkey, contact, supported_nips, software, version, 
+         limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
+         limitation_max_event_tags, limitation_max_content_length, limitation_auth_required,
+         limitation_payment_required, icon
+         FROM relay_info WHERE id = 1",
+    )
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None);
+
+    match row {
+        Some((
+            name, description, pubkey, contact, supported_nips,
+            software, version, max_msg_len, max_subs, max_filters,
+            max_event_tags, max_content_len, auth_required, payment_required, icon,
+        )) => Json(RelayInfoRow {
+            name,
+            description,
+            pubkey,
+            contact,
+            supported_nips,
+            software,
+            version,
+            limitation_max_message_length: max_msg_len,
+            limitation_max_subscriptions: max_subs,
+            limitation_max_filters: max_filters,
+            limitation_max_event_tags: max_event_tags,
+            limitation_max_content_length: max_content_len,
+            limitation_auth_required: auth_required != 0,
+            limitation_payment_required: payment_required != 0,
+            icon,
+        }),
+        None => Json(RelayInfoRow {
+            name: Some("Proxy Nostr Relay".to_string()),
+            description: Some("A proxy relay with bot filtering capabilities".to_string()),
+            pubkey: None,
+            contact: None,
+            supported_nips: Some("[1, 11]".to_string()),
+            software: Some("https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
+            version: Some("0.1.0".to_string()),
+            limitation_max_message_length: None,
+            limitation_max_subscriptions: None,
+            limitation_max_filters: None,
+            limitation_max_event_tags: None,
+            limitation_max_content_length: None,
+            limitation_auth_required: false,
+            limitation_payment_required: false,
+            icon: None,
+        }),
+    }
+}
+
+async fn put_relay_info(State(pool): State<SqlitePool>, Json(body): Json<RelayInfoRow>) -> Json<()> {
+    let auth_required = if body.limitation_auth_required { 1i64 } else { 0i64 };
+    let payment_required = if body.limitation_payment_required { 1i64 } else { 0i64 };
+    
+    let _ = sqlx::query(
+        "INSERT INTO relay_info (id, name, description, pubkey, contact, supported_nips, software, version,
+         limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
+         limitation_max_event_tags, limitation_max_content_length, limitation_auth_required,
+         limitation_payment_required, icon)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name, description = excluded.description, pubkey = excluded.pubkey,
+         contact = excluded.contact, supported_nips = excluded.supported_nips, software = excluded.software,
+         version = excluded.version, limitation_max_message_length = excluded.limitation_max_message_length,
+         limitation_max_subscriptions = excluded.limitation_max_subscriptions,
+         limitation_max_filters = excluded.limitation_max_filters,
+         limitation_max_event_tags = excluded.limitation_max_event_tags,
+         limitation_max_content_length = excluded.limitation_max_content_length,
+         limitation_auth_required = excluded.limitation_auth_required,
+         limitation_payment_required = excluded.limitation_payment_required,
+         icon = excluded.icon,
+         updated_at = datetime('now')",
+    )
+    .bind(&body.name)
+    .bind(&body.description)
+    .bind(&body.pubkey)
+    .bind(&body.contact)
+    .bind(&body.supported_nips)
+    .bind(&body.software)
+    .bind(&body.version)
+    .bind(body.limitation_max_message_length)
+    .bind(body.limitation_max_subscriptions)
+    .bind(body.limitation_max_filters)
+    .bind(body.limitation_max_event_tags)
+    .bind(body.limitation_max_content_length)
+    .bind(auth_required)
+    .bind(payment_required)
+    .bind(&body.icon)
+    .execute(&pool)
+    .await;
+    
+    Json(())
 }
