@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-use crate::{auth, parser::rule::parse_natural_language_rule, parser::filter_query};
+use crate::{auth, parser::filter_query};
 
 pub fn router(pool: SqlitePool) -> Router {
     Router::new()
@@ -17,7 +17,6 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/safelist/:npub/unban", put(unban_npub))
         .route("/filters", get(list_filters).post(create_filter))
         .route("/filters/:id", put(update_filter).delete(delete_filter))
-        .route("/filters/parse", post(parse_filter))
         .route("/filters/validate", post(validate_filter))
         .route("/ip-access-control", get(list_ip_access_control).post(create_ip_access_control))
         .route("/ip-access-control/:id", put(update_ip_access_control).delete(delete_ip_access_control))
@@ -158,19 +157,54 @@ pub struct CreateFilterBody {
     pub nl_text: String,
 }
 
-async fn create_filter(State(pool): State<SqlitePool>, Json(body): Json<CreateFilterBody>) -> Json<()> {
-    let rule = parse_natural_language_rule(&body.nl_text)
-        .map(|r| serde_json::to_string(&r).unwrap_or_else(|_| "{}".to_string()))
-        .unwrap_or_else(|_| "{}".to_string());
-    let _ = sqlx::query(
+/// Response for filter creation/update operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterResponse {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+}
+
+async fn create_filter(State(pool): State<SqlitePool>, Json(body): Json<CreateFilterBody>) -> Json<FilterResponse> {
+    // Validate DSL query
+    let validation = filter_query::validate(&body.nl_text);
+    if !validation.valid {
+        return Json(FilterResponse {
+            success: false,
+            error: validation.error,
+            id: None,
+        });
+    }
+    
+    // Store DSL query directly (nl_text contains the DSL query, parsed_json also stores it for filtering)
+    match sqlx::query(
         "INSERT INTO filter_rules (name, nl_text, parsed_json, enabled, rule_order) VALUES (?, ?, ?, 1, 0)",
     )
-    .bind(body.name)
-    .bind(body.nl_text)
-    .bind(rule)
+    .bind(&body.name)
+    .bind(&body.nl_text)  // DSL query
+    .bind(&body.nl_text)  // Store same DSL query in parsed_json for FilterEngine
     .execute(&pool)
-    .await;
-    Json(())
+    .await {
+        Ok(result) => {
+            let id = result.last_insert_rowid();
+            tracing::info!(name = %body.name, id = id, "Created filter rule");
+            Json(FilterResponse {
+                success: true,
+                error: None,
+                id: Some(id),
+            })
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to create filter rule");
+            Json(FilterResponse {
+                success: false,
+                error: Some(format!("Database error: {}", e)),
+                id: None,
+            })
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,23 +219,46 @@ async fn update_filter(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
     Json(body): Json<UpdateFilterBody>,
-) -> Json<()> {
-    let rule = parse_natural_language_rule(&body.nl_text)
-        .map(|r| serde_json::to_string(&r).unwrap_or_else(|_| "{}".to_string()))
-        .unwrap_or_else(|_| "{}".to_string());
+) -> Json<FilterResponse> {
+    // Validate DSL query
+    let validation = filter_query::validate(&body.nl_text);
+    if !validation.valid {
+        return Json(FilterResponse {
+            success: false,
+            error: validation.error,
+            id: Some(id),
+        });
+    }
+    
     let enabled = if body.enabled { 1i64 } else { 0i64 };
-    let _ = sqlx::query(
+    match sqlx::query(
         "UPDATE filter_rules SET name = ?, nl_text = ?, parsed_json = ?, enabled = ?, rule_order = ?, updated_at = datetime('now') WHERE id = ?",
     )
-    .bind(body.name)
-    .bind(body.nl_text)
-    .bind(rule)
+    .bind(&body.name)
+    .bind(&body.nl_text)  // DSL query
+    .bind(&body.nl_text)  // Store same DSL query in parsed_json
     .bind(enabled)
     .bind(body.rule_order)
     .bind(id)
     .execute(&pool)
-    .await;
-    Json(())
+    .await {
+        Ok(_) => {
+            tracing::info!(name = %body.name, id = id, "Updated filter rule");
+            Json(FilterResponse {
+                success: true,
+                error: None,
+                id: Some(id),
+            })
+        }
+        Err(e) => {
+            tracing::error!(error = %e, id = id, "Failed to update filter rule");
+            Json(FilterResponse {
+                success: false,
+                error: Some(format!("Database error: {}", e)),
+                id: Some(id),
+            })
+        }
+    }
 }
 
 async fn delete_filter(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> Json<()> {
@@ -210,23 +267,6 @@ async fn delete_filter(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> J
         .execute(&pool)
         .await;
     Json(())
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParseFilterBody {
-    pub nl_text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParseFilterResp {
-    pub parsed_json: String,
-}
-
-async fn parse_filter(Json(body): Json<ParseFilterBody>) -> Json<ParseFilterResp> {
-    let parsed_json = parse_natural_language_rule(&body.nl_text)
-        .map(|r| serde_json::to_string(&r).unwrap_or_else(|_| "{}".to_string()))
-        .unwrap_or_else(|_| "{}".to_string());
-    Json(ParseFilterResp { parsed_json })
 }
 
 // Filter Query Validation

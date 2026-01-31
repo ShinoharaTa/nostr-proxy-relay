@@ -1,6 +1,6 @@
 # Proxy Nostr Relay
 
-Nostrプロトコル用のプロキシリレーサーバー。Botや不要な投稿をフィルタリングし、自然言語でフィルタルールを設定できます。
+Nostrプロトコル用のプロキシリレーサーバー。Botや不要な投稿をフィルタリングし、DSL（Domain Specific Language）でフィルタルールを設定できます。
 
 ## 機能
 
@@ -8,7 +8,7 @@ Nostrプロトコル用のプロキシリレーサーバー。Botや不要な投
 - **プロキシリレー機能**: クライアントとバックエンドリレー間のプロキシとして動作
 - **イベントフィルタリング**: Kind 6（リポスト）やKind 7（リアクション）のBot投稿を自動検出・ブロック
 - **セーフリスト機能**: 特定のnpubからの投稿を許可、またはフィルタをバイパス
-- **自然言語ルール**: 日本語でフィルタ条件を記述可能
+- **Filter Query Language**: DSL形式でフィルタ条件を記述可能
 - **管理UI**: ReactベースのWeb管理画面（`/config`）
 - **Basic認証**: 管理画面へのアクセス保護
 
@@ -294,11 +294,10 @@ sudo systemctl start proxy-nostr-relay
 #### フィルタルール管理
 
 - **`GET /api/filters`**: フィルタルールの一覧取得
-- **`POST /api/filters`**: フィルタルールの作成
+- **`POST /api/filters`**: フィルタルールの作成（DSLクエリを使用）
 - **`PUT /api/filters/:id`**: フィルタルールの更新
 - **`DELETE /api/filters/:id`**: フィルタルールの削除
-- **`POST /api/filters/parse`**: 自然言語テキストをフィルタルールにパース
-- **`POST /api/filters/validate`**: フィルタクエリの構文チェック（[仕様](/docs/filter-query)）
+- **`POST /api/filters/validate`**: DSLクエリの構文チェック（[仕様](/docs/filter-query)）
 
 #### IP管理
 
@@ -370,17 +369,18 @@ curl -X POST \
 ### フィルタルールの作成
 
 ```bash
+# DSLクエリを使用してフィルタルールを作成
 curl -X POST \
   -H "Authorization: $AUTH_HEADER" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Bot検出ルール",
-    "nl_text": "リポストでcreated_atが同一のものは弾く",
-    "enabled": true,
-    "rule_order": 0
+    "name": "Kind 1でNGワードを含むものをブロック",
+    "nl_text": "kind == 1 AND content matches \".*NGワード.*\""
   }' \
   http://localhost:8080/api/filters
 ```
+
+DSLクエリの構文については [Filter Query Language仕様](/docs/filter-query) を参照してください。
 
 ## テスト
 
@@ -453,7 +453,7 @@ proxy-nostr-relay/
 │   ├── nostr/           # Nostrプロトコル実装
 │   ├── proxy/           # WebSocketプロキシ実装
 │   ├── filter/          # フィルタリングエンジン
-│   ├── parser/          # 自然言語パーサー
+│   ├── parser/          # Filter Query Language パーサー
 │   ├── auth/            # Basic認証
 │   └── api/             # HTTP APIルート
 ├── web/                 # Reactフロントエンド

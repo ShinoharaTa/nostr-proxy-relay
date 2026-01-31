@@ -49,7 +49,7 @@ async fn log_rejection(
     .execute(pool)
     .await {
         Ok(_) => {
-            tracing::debug!(event_id = %event.id, npub = %npub, reason = %reason, "Logged event rejection");
+            // ログ削除: データベースへの記録は静かに行う
             Ok(())
         }
         Err(e) => {
@@ -98,12 +98,12 @@ impl FilterEngine {
             // Try to compile as DSL query first, then fall back to legacy format
             match filter_query::compile(&parsed_json) {
                 Ok(filter) => {
-                    tracing::debug!(rule_id = id, name = %name, "Loaded filter rule (DSL)");
+                    // ログ削除: ルール読み込みは静かに行う
                     new_rules.push(CachedRule { id, name, filter });
                 }
                 Err(e) => {
-                    // The parsed_json might contain the DSL query directly or legacy JSON
-                    tracing::debug!(rule_id = id, name = %name, error = %e, "Skipping invalid filter rule");
+                    // エラー時のみログ出力
+                    tracing::warn!(rule_id = id, name = %name, error = %e, "Skipping invalid filter rule");
                 }
             }
         }
@@ -118,7 +118,7 @@ impl FilterEngine {
             *loaded_at = Some(std::time::Instant::now());
         }
         
-        tracing::debug!("Reloaded filter rules from database");
+        // ログ削除: リロード完了ログを削除
         Ok(())
     }
 
@@ -142,10 +142,14 @@ impl FilterEngine {
         for rule in rules.iter() {
             if rule.filter.matches(event, &self.kind1_created_at_by_id) {
                 let reason = format!("filter_rule:{}", rule.id);
+                // ブロック時のみログ出力（重要）
+                let npub = pubkey_hex_to_npub(&event.pubkey).unwrap_or_else(|_| "unknown".to_string());
                 tracing::info!(
                     event_id = %event.id,
+                    npub = %npub,
                     rule_id = rule.id,
                     rule_name = %rule.name,
+                    kind = event.kind,
                     "Event blocked by filter rule"
                 );
                 log_rejection(pool, event, &reason, ip_address).await?;

@@ -89,7 +89,7 @@ pub async fn proxy_ws_with_pool(
                 .fetch_optional(pool)
                 .await?;
         let allowed = row.map(|(flags,)| (flags & 1) == 1).unwrap_or(false);
-        tracing::debug!(npub = %npub, pubkey_hex = %pubkey_hex, flags = ?row.map(|(f,)| f), allowed = %allowed, "is_post_allowed check");
+        // ログ削除: 通常のチェックは静かに行う
         Ok(allowed)
     }
 
@@ -124,7 +124,7 @@ pub async fn proxy_ws_with_pool(
         .execute(pool)
         .await {
             Ok(_) => {
-                tracing::debug!(event_id = %event.id, npub = %npub, reason = %reason, "Logged event rejection");
+                // ログ削除: データベースへの記録は静かに行う
                 Ok(())
             }
             Err(e) => {
@@ -157,7 +157,7 @@ pub async fn proxy_ws_with_pool(
                     // If it's an EVENT, enforce safelist when pool is available.
                     match parse_client_msg(&text) {
                         Ok(ClientMsg::Event { event }) => {
-                            tracing::info!(event_id = %event.id, pubkey_hex = %event.pubkey, kind = event.kind, "Received EVENT from client");
+                            // ログ削除: 通常のイベント受信ログを削除
                             if let Some(pool) = &pool_c2b {
                                 let allowed = match is_post_allowed(pool, &event.pubkey).await {
                                     Ok(a) => a,
@@ -185,35 +185,34 @@ pub async fn proxy_ws_with_pool(
                                     let _ = client_out_tx_c2b.send(Message::Text(notice.to_string()));
                                     continue;
                                 }
-                                tracing::info!(event_id = %event.id, pubkey_hex = %event.pubkey, "EVENT allowed, forwarding to backend");
+                                // ログ削除: 許可されたイベントのログを削除
                             } else {
                                 tracing::warn!("No pool available, forwarding EVENT without safelist check");
                             }
                         }
-                        Ok(ClientMsg::Req { sub_id, filters }) => {
-                            tracing::info!(sub_id = %sub_id, filter_count = filters.len(), ip = ?client_ip_c2b, "Received REQ from client");
-                            tracing::debug!(sub_id = %sub_id, filters = ?filters, "REQ filters detail");
+                        Ok(ClientMsg::Req { sub_id: _, filters: _ }) => {
+                            // ログ削除: REQメッセージのログを削除
                         }
-                        Ok(ClientMsg::Close { sub_id }) => {
-                            tracing::info!(sub_id = %sub_id, ip = ?client_ip_c2b, "Received CLOSE from client");
+                        Ok(ClientMsg::Close { sub_id: _ }) => {
+                            // ログ削除: CLOSEメッセージのログを削除
                         }
-                        Err(e) => {
-                            tracing::debug!(error = %e, "Failed to parse client message (may not be a Nostr message)");
+                        Err(_e) => {
+                            // ログ削除: パースエラーのログを削除（Nostrメッセージでない可能性が高い）
                         }
                     }
-                    tracing::debug!(message_len = text.len(), "Forwarding text message to backend");
+                    // ログ削除: 通常のメッセージ転送ログを削除
                     backend_tx.send(TungMessage::Text(text)).await?
                 }
                 Message::Binary(bin) => {
-                    tracing::debug!(binary_len = bin.len(), "Forwarding binary message to backend");
+                    // ログ削除: バイナリメッセージのログを削除
                     backend_tx.send(TungMessage::Binary(bin)).await?
                 }
                 Message::Ping(p) => {
-                    tracing::debug!("Received PING from client, forwarding to backend");
+                    // ログ削除: PINGメッセージのログを削除
                     backend_tx.send(TungMessage::Ping(p)).await?
                 }
                 Message::Pong(p) => {
-                    tracing::debug!("Received PONG from client, forwarding to backend");
+                    // ログ削除: PONGメッセージのログを削除
                     backend_tx.send(TungMessage::Pong(p)).await?
                 }
                 Message::Close(frame) => {
@@ -244,11 +243,12 @@ pub async fn proxy_ws_with_pool(
                     if let Some(pool) = &pool_b2c {
                         match filter_engine.should_drop_backend_text_with_ip(pool, &text, client_ip_b2c.as_deref()).await {
                             Ok(true) => {
-                                tracing::debug!("Backend EVENT dropped by filter");
+                                // ブロック時のみログ出力（重要）
+                                tracing::info!("Backend EVENT dropped by filter");
                                 continue;
                             }
                             Ok(false) => {
-                                // Event passed filter
+                                // Event passed filter - ログ削除
                             }
                             Err(e) => {
                                 tracing::error!(error = %e, "Error in filter check, passing through");
@@ -258,23 +258,22 @@ pub async fn proxy_ws_with_pool(
                     // Check if this is an EVENT response from backend
                     if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&text) {
                         if arr.first().and_then(|v| v.as_str()) == Some("EVENT") {
-                            if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
-                                if let Some(ev_v) = arr.get(2) {
-                                    if let Ok(event) = serde_json::from_value::<crate::nostr::event::Event>(ev_v.clone()) {
-                                        tracing::info!(sub_id = %sub_id, event_id = %event.id, pubkey_hex = %event.pubkey, kind = event.kind, "Forwarding EVENT from backend to client");
-                                    }
+                            // ログ削除: 通常のイベント転送ログを削除
+                            if let Some(_sub_id) = arr.get(1).and_then(|v| v.as_str()) {
+                                if let Some(_ev_v) = arr.get(2) {
+                                    // イベント処理は続行
                                 }
                             }
                         } else if arr.first().and_then(|v| v.as_str()) == Some("EOSE") {
-                            if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
-                                tracing::info!(sub_id = %sub_id, "Received EOSE from backend, forwarding to client");
+                            // ログ削除: EOSEメッセージのログを削除
+                            if let Some(_sub_id) = arr.get(1).and_then(|v| v.as_str()) {
+                                // EOSE処理は続行
                             }
                         } else if arr.first().and_then(|v| v.as_str()) == Some("OK") {
-                            if let Some(event_id) = arr.get(1).and_then(|v| v.as_str()) {
+                            if let Some(_event_id) = arr.get(1).and_then(|v| v.as_str()) {
                                 // OKメッセージの形式: ["OK", <event_id>, <accepted>, <message>]
                                 let accepted = arr.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
-                                let message = arr.get(3).and_then(|v| v.as_str());
-                                tracing::info!(event_id = %event_id, accepted = %accepted, message = ?message, "Backend OK response");
+                                // ログ削除: OKメッセージのログを削除
                                 // 統計情報を更新
                                 if let (Some(pool), Some(log_id)) = (&pool_b2c, connection_log_id_b2c_clone.as_ref()) {
                                     if accepted {
@@ -297,26 +296,27 @@ pub async fn proxy_ws_with_pool(
                                 }
                             }
                         } else if arr.first().and_then(|v| v.as_str()) == Some("NOTICE") {
-                            if let Some(notice_msg) = arr.get(1).and_then(|v| v.as_str()) {
-                                tracing::info!(notice = %notice_msg, "Received NOTICE from backend, forwarding to client");
+                            // ログ削除: NOTICEメッセージのログを削除
+                            if let Some(_notice_msg) = arr.get(1).and_then(|v| v.as_str()) {
+                                // NOTICE処理は続行
                             }
                         } else {
-                            tracing::debug!(message_type = ?arr.first().and_then(|v| v.as_str()), "Received unknown message type from backend");
+                            // ログ削除: 未知のメッセージタイプのログを削除
                         }
                     }
-                    tracing::debug!(message_len = text.len(), "Forwarding text message from backend to client");
+                    // ログ削除: 通常のメッセージ転送ログを削除
                     let _ = client_out_tx_b2c.send(Message::Text(text));
                 }
                 TungMessage::Binary(bin) => {
-                    tracing::debug!(binary_len = bin.len(), "Forwarding binary message from backend to client");
+                    // ログ削除: バイナリメッセージのログを削除
                     let _ = client_out_tx_b2c.send(Message::Binary(bin));
                 }
                 TungMessage::Ping(p) => {
-                    tracing::debug!("Received PING from backend, forwarding to client");
+                    // ログ削除: PINGメッセージのログを削除
                     let _ = client_out_tx_b2c.send(Message::Ping(p));
                 }
                 TungMessage::Pong(p) => {
-                    tracing::debug!("Received PONG from backend, forwarding to client");
+                    // ログ削除: PONGメッセージのログを削除
                     let _ = client_out_tx_b2c.send(Message::Pong(p));
                 }
                 TungMessage::Close(frame) => {
