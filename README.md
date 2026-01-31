@@ -20,6 +20,15 @@ Nostrプロトコル用のプロキシリレーサーバー。Botや不要な投
 - **拒否ログ**: 拒否されたイベントの詳細（理由、Npub、IP、Kind）を記録
 - **統計情報**: 接続数、拒否数、拒否理由別内訳、トップNpub/IPの表示
 
+### Filter Query Language（v0.3.0〜）
+- **DSL形式のフィルタールール**: SQLライクな構文でフィルタ条件を記述
+- **正規表現サポート**: `matches` 演算子で正規表現マッチング
+- **複合条件**: `AND`、`OR`、`NOT` で条件を組み合わせ
+- **タグベースフィルター**: タグの存在確認、カウント、値の比較
+- **バリデーションAPI**: クエリの構文チェック
+
+詳細は [Filter Query Language仕様](/docs/filter-query) を参照してください。
+
 ## フィルタリングロジック
 
 - **Kind 6/7のBot検出**: 参照先のKind 1イベントと`created_at`が同一の場合、Botの可能性が高いためブロック
@@ -289,6 +298,7 @@ sudo systemctl start proxy-nostr-relay
 - **`PUT /api/filters/:id`**: フィルタルールの更新
 - **`DELETE /api/filters/:id`**: フィルタルールの削除
 - **`POST /api/filters/parse`**: 自然言語テキストをフィルタルールにパース
+- **`POST /api/filters/validate`**: フィルタクエリの構文チェック（[仕様](/docs/filter-query)）
 
 #### IP管理
 
@@ -313,6 +323,11 @@ sudo systemctl start proxy-nostr-relay
 #### 管理画面
 
 - **`GET /config`**: React管理UI（Basic認証が必要）
+
+#### ドキュメント（公開）
+
+- **`GET /docs`**: ドキュメントトップページ（認証不要）
+- **`GET /docs/filter-query`**: Filter Query Language仕様（認証不要）
 
 #### ヘルスチェック
 
