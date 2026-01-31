@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-use crate::{auth, parser::rule::parse_natural_language_rule};
+use crate::{auth, parser::rule::parse_natural_language_rule, parser::filter_query};
 
 pub fn router(pool: SqlitePool) -> Router {
     Router::new()
@@ -18,6 +18,7 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/filters", get(list_filters).post(create_filter))
         .route("/filters/:id", put(update_filter).delete(delete_filter))
         .route("/filters/parse", post(parse_filter))
+        .route("/filters/validate", post(validate_filter))
         .route("/ip-access-control", get(list_ip_access_control).post(create_ip_access_control))
         .route("/ip-access-control/:id", put(update_ip_access_control).delete(delete_ip_access_control))
         .route("/req-kind-blacklist", get(list_req_kind_blacklist).post(create_req_kind_blacklist))
@@ -93,15 +94,22 @@ async fn list_safelist(State(pool): State<SqlitePool>) -> Json<Vec<SafelistRow>>
 }
 
 async fn upsert_safelist(State(pool): State<SqlitePool>, Json(body): Json<SafelistRow>) -> Json<()> {
-    let _ = sqlx::query(
+    match sqlx::query(
         "INSERT INTO safelist (npub, flags, memo) VALUES (?, ?, ?) \
          ON CONFLICT(npub) DO UPDATE SET flags = excluded.flags, memo = excluded.memo",
     )
-    .bind(body.npub)
+    .bind(&body.npub)
     .bind(body.flags)
-    .bind(body.memo)
+    .bind(&body.memo)
     .execute(&pool)
-    .await;
+    .await {
+        Ok(_) => {
+            tracing::info!(npub = %body.npub, flags = body.flags, "Upserted safelist entry");
+        }
+        Err(e) => {
+            tracing::error!(npub = %body.npub, error = %e, "Failed to upsert safelist entry");
+        }
+    }
     Json(())
 }
 
@@ -219,6 +227,17 @@ async fn parse_filter(Json(body): Json<ParseFilterBody>) -> Json<ParseFilterResp
         .map(|r| serde_json::to_string(&r).unwrap_or_else(|_| "{}".to_string()))
         .unwrap_or_else(|_| "{}".to_string());
     Json(ParseFilterResp { parsed_json })
+}
+
+// Filter Query Validation
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidateFilterBody {
+    pub query: String,
+}
+
+async fn validate_filter(Json(body): Json<ValidateFilterBody>) -> Json<filter_query::ValidationResult> {
+    Json(filter_query::validate(&body.query))
 }
 
 // IP管理エンドポイント
