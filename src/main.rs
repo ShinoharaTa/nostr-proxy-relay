@@ -20,9 +20,9 @@ use axum::{
 };
 use std::net::SocketAddr;
 use sqlx::SqlitePool;
-use rust_embed::RustEmbed;
+use rust_embed::Embed;
 
-#[derive(RustEmbed)]
+#[derive(Embed)]
 #[folder = "web/dist"]
 struct Asset;
 

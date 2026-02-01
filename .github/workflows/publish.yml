@@ -1,12 +1,15 @@
-name: Publish to crates.io
+name: CI & Publish
 
 on:
   push:
     branches:
-      - main # main ブランチに Push されたときに実行
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  publish:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +28,13 @@ jobs:
           npm ci
           npm run build
 
-      - name: Publish to crates.io
-        run: cargo publish --token ${CRATES_TOKEN} --allow-dirty
-        env:
-          CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+      - name: Cargo Check
+        run: cargo check
+
+  publish:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+...
