@@ -11,6 +11,21 @@ readme = "README.md"
 keywords = ["nostr", "relay", "proxy"]
 categories = ["network-programming"]
 default-run = "proxy-nostr-relay"
+build = "build.rs"
+include = [
+    "**/*.rs",
+    "**/*.toml",
+    "**/*.md",
+    "**/*.sql",
+    "web/dist/**",
+    "web/package.json",
+    "web/package-lock.json",
+    "web/vite.config.ts",
+    "web/tsconfig*.json",
+    "web/index.html",
+    "web/src/**",
+    "web/public/**",
+]
 
 [dependencies]
 anyhow = "1.0"
