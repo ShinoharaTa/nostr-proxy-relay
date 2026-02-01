@@ -19,8 +19,12 @@ use axum::{
     response::{Html, IntoResponse, Json},
 };
 use std::net::SocketAddr;
-use tower_http::services::{ServeDir, ServeFile};
 use sqlx::SqlitePool;
+use rust_embed::RustEmbed;
+
+#[derive(RustEmbed)]
+#[folder = "web/dist"]
+struct Asset;
 
 /// DBから有効なバックエンドリレーURLを取得
 async fn get_backend_relay_url(pool: &SqlitePool) -> String {
@@ -173,29 +177,68 @@ async fn main() -> anyhow::Result<()> {
         github_url: std::env::var("GITHUB_URL").unwrap_or_else(|_| "https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
     };
 
-    // Serve React admin UI from web/dist
+    // Serve React admin UI from embedded assets
     // For SPA: serve static files if they exist, otherwise serve index.html
-    let index_html = std::fs::read_to_string("web/dist/index.html")
-        .unwrap_or_else(|_| "<html><body>Admin UI not found. Please build the web app.</body></html>".to_string());
+    let index_html = Asset::get("index.html")
+        .map(|content| String::from_utf8_lossy(&content.data).to_string())
+        .unwrap_or_else(|| "<html><body>Admin UI not found. Please build the web app.</body></html>".to_string());
     
-    // Serve static files from web/dist
-    // Use fallback to serve index.html for SPA routing
-    let static_dir = ServeDir::new("web/dist")
-        .fallback(tower::service_fn({
-            let html = index_html.clone();
-            move |_req| {
-                let html = html.clone();
-                async move {
-                    Ok::<_, std::convert::Infallible>(Html(html).into_response())
+    // Serve static files from embedded assets
+    let static_dir = tower::service_fn({
+        let index_html = index_html.clone();
+        move |req: axum::http::Request<axum::body::Body>| {
+            let path = req.uri().path().to_string();
+            let index_html = index_html.clone();
+            async move {
+                let path = path.trim_start_matches("/config").trim_start_matches('/');
+                let path = if path.is_empty() { "index.html" } else { path };
+                
+                match Asset::get(path) {
+                    Some(content) => {
+                        let mime = mime_guess::from_path(path).first_or_octet_stream();
+                        Ok::<_, std::convert::Infallible>(
+                            axum::response::Response::builder()
+                                .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
+                                .body(axum::body::Body::from(content.data))
+                                .unwrap()
+                        )
+                    }
+                    None => {
+                        // Fallback to index.html for SPA routing
+                        Ok::<_, std::convert::Infallible>(Html(index_html).into_response())
+                    }
                 }
             }
-        }));
+        }
+    });
     
     let protected = Router::new()
-        // index.html が `/assets/...` と `/vite.svg` を参照するため、/config だけでなくそれらも配信する
-        // いずれも管理UIの一部なので Basic 認証で保護する
-        .nest_service("/assets", ServeDir::new("web/dist/assets"))
-        .route_service("/vite.svg", ServeFile::new("web/dist/vite.svg"))
+        // index.html が `/assets/...` と `/vite.svg` を参照するため、それらも埋め込み資産から配信する
+        .route("/vite.svg", get(|| async {
+            match Asset::get("vite.svg") {
+                Some(content) => {
+                    let mut res = axum::body::Body::from(content.data).into_response();
+                    res.headers_mut().insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("image/svg+xml"));
+                    res
+                }
+                None => axum::http::StatusCode::NOT_FOUND.into_response(),
+            }
+        }))
+        .nest_service("/assets", tower::service_fn(|req: axum::http::Request<axum::body::Body>| async move {
+            let path = req.uri().path().trim_start_matches('/').to_string();
+            match Asset::get(&path) {
+                Some(content) => {
+                    let mime = mime_guess::from_path(&path).first_or_octet_stream();
+                    Ok::<_, std::convert::Infallible>(
+                        axum::response::Response::builder()
+                            .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
+                            .body(axum::body::Body::from(content.data))
+                            .unwrap()
+                    )
+                }
+                None => Ok::<_, std::convert::Infallible>(axum::http::StatusCode::NOT_FOUND.into_response()),
+            }
+        }))
         .nest_service("/config", static_dir)
         .layer(axum::middleware::from_fn_with_state(
             pool.clone(),

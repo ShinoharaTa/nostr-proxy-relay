@@ -2,6 +2,14 @@
 name = "proxy-nostr-relay"
 version = "0.1.0"
 edition = "2021"
+authors = ["ShinoharaTa"]
+description = "A Nostr proxy relay with advanced bot filtering and an admin UI."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ShinoharaTa/nostr-proxy-relay"
+homepage = "https://github.com/ShinoharaTa/nostr-proxy-relay"
+readme = "README.md"
+keywords = ["nostr", "relay", "proxy"]
+categories = ["network-programming"]
 default-run = "proxy-nostr-relay"
 
 [dependencies]
@@ -31,4 +39,6 @@ uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
 regex = "1.10"
 pulldown-cmark = "0.10"
+rust-embed = { version = "8.5", features = ["axum"] }
+mime_guess = "2.0"
 
