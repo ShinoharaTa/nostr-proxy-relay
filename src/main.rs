@@ -34,34 +34,77 @@ async fn get_backend_relay_url(pool: &SqlitePool) -> String {
     result.map(|(url,)| url).unwrap_or_default()
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RelayInfoDb {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub pubkey: Option<String>,
+    pub contact: Option<String>,
+    pub supported_nips: Option<String>,
+    pub software: Option<String>,
+    pub version: Option<String>,
+    pub limitation_max_message_length: Option<i64>,
+    pub limitation_max_subscriptions: Option<i64>,
+    pub limitation_max_filters: Option<i64>,
+    pub limitation_max_event_tags: Option<i64>,
+    pub limitation_max_content_length: Option<i64>,
+    pub limitation_auth_required: i64,
+    pub limitation_payment_required: i64,
+    pub icon: Option<String>,
+    pub limitation_max_limit: Option<i64>,
+    pub negentropy: i64,
+}
+
 /// NIP-11 Relay Information Document
 async fn get_nip11_info(pool: &SqlitePool) -> serde_json::Value {
-    let row = sqlx::query_as::<_, (
-        Option<String>, Option<String>, Option<String>, Option<String>, Option<String>,
-        Option<String>, Option<String>, Option<i64>, Option<i64>, Option<i64>,
-        Option<i64>, Option<i64>, i64, i64, Option<String>,
-    )>(
+    let row = sqlx::query_as::<_, RelayInfoDb>(
         "SELECT name, description, pubkey, contact, supported_nips, software, version, 
          limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
          limitation_max_event_tags, limitation_max_content_length, limitation_auth_required,
-         limitation_payment_required, icon
+         limitation_payment_required, icon, limitation_max_limit, negentropy
          FROM relay_info WHERE id = 1",
     )
     .fetch_optional(pool)
     .await
     .unwrap_or(None);
 
-    let (name, description, pubkey, contact, supported_nips_str, software, version,
-         max_msg_len, max_subs, max_filters, max_event_tags, max_content_len,
-         auth_required, payment_required, icon) = row.unwrap_or((
-        Some("Proxy Nostr Relay".to_string()),
-        Some("A proxy relay with bot filtering capabilities".to_string()),
-        None, None,
-        Some("[1, 11]".to_string()),
-        Some("https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
-        Some("0.1.0".to_string()),
-        None, None, None, None, None, 0, 0, None,
-    ));
+    let row = row.unwrap_or(RelayInfoDb {
+        name: Some("Proxy Nostr Relay".to_string()),
+        description: Some("A proxy relay with bot filtering capabilities".to_string()),
+        pubkey: None,
+        contact: None,
+        supported_nips: Some("[1, 11]".to_string()),
+        software: Some("https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
+        version: Some("0.1.0".to_string()),
+        limitation_max_message_length: None,
+        limitation_max_subscriptions: None,
+        limitation_max_filters: None,
+        limitation_max_event_tags: None,
+        limitation_max_content_length: None,
+        limitation_auth_required: 0,
+        limitation_payment_required: 0,
+        icon: None,
+        limitation_max_limit: None,
+        negentropy: 0,
+    });
+
+    let name = row.name;
+    let description = row.description;
+    let pubkey = row.pubkey;
+    let contact = row.contact;
+    let supported_nips_str = row.supported_nips;
+    let software = row.software;
+    let version = row.version;
+    let max_msg_len = row.limitation_max_message_length;
+    let max_subs = row.limitation_max_subscriptions;
+    let max_filters = row.limitation_max_filters;
+    let max_event_tags = row.limitation_max_event_tags;
+    let max_content_len = row.limitation_max_content_length;
+    let auth_required = row.limitation_auth_required;
+    let payment_required = row.limitation_payment_required;
+    let icon = row.icon;
+    let max_limit = row.limitation_max_limit;
+    let negentropy = row.negentropy;
 
     // Parse supported_nips from JSON string to array
     let supported_nips: Vec<i64> = supported_nips_str
@@ -70,6 +113,7 @@ async fn get_nip11_info(pool: &SqlitePool) -> serde_json::Value {
 
     // Build limitation object if any limits are set
     let mut limitation = serde_json::Map::new();
+    if let Some(v) = max_limit { limitation.insert("max_limit".to_string(), serde_json::json!(v)); }
     if let Some(v) = max_msg_len { limitation.insert("max_message_length".to_string(), serde_json::json!(v)); }
     if let Some(v) = max_subs { limitation.insert("max_subscriptions".to_string(), serde_json::json!(v)); }
     if let Some(v) = max_filters { limitation.insert("max_filters".to_string(), serde_json::json!(v)); }
@@ -88,6 +132,7 @@ async fn get_nip11_info(pool: &SqlitePool) -> serde_json::Value {
     if let Some(v) = version { info.insert("version".to_string(), serde_json::json!(v)); }
     if !limitation.is_empty() { info.insert("limitation".to_string(), serde_json::Value::Object(limitation)); }
     if let Some(v) = icon { info.insert("icon".to_string(), serde_json::json!(v)); }
+    if negentropy != 0 { info.insert("negentropy".to_string(), serde_json::json!(negentropy)); }
 
     serde_json::Value::Object(info)
 }

@@ -826,3 +826,53 @@ input[type="radio"] {
 .info-box p + p {
   margin-top: 0.5rem;
 }
+
+/* NIP Checkbox Grid */
+.nip-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--bg-input);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.nip-checkbox-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.nip-checkbox-item:hover {
+  background: var(--bg-hover);
+}
+
+.nip-checkbox-item input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.nip-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: 13px;
+}
+
+.nip-label strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.nip-name {
+  color: var(--text-secondary);
+  font-size: 12px;
+}

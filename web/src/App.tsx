@@ -1,6 +1,31 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
+// NIP List with names for checkbox selection
+const NIP_LIST = [
+  { number: 1, name: "Basic protocol flow" },
+  { number: 2, name: "Follow List" },
+  { number: 4, name: "Encrypted Direct Message" },
+  { number: 9, name: "Event Deletion" },
+  { number: 11, name: "Relay Information Metadata" },
+  { number: 12, name: "Generic Tag Queries" },
+  { number: 15, name: "Nostr Marketplace" },
+  { number: 16, name: "Event Treatment" },
+  { number: 20, name: "Command Results" },
+  { number: 22, name: "Event created_at Limits" },
+  { number: 26, name: "Delegated Event Signing" },
+  { number: 28, name: "Public Chat" },
+  { number: 33, name: "Parameterized Replaceable Events" },
+  { number: 40, name: "Expirable Events" },
+  { number: 42, name: "Authentication of clients to relays" },
+  { number: 45, name: "Counting results" },
+  { number: 50, name: "Keywords filter" },
+  { number: 62, name: "Rendezvous protocol" },
+  { number: 65, name: "Relay List Metadata" },
+  { number: 70, name: "Zap" },
+  { number: 77, name: "Relay Auth" },
+];
+
 // Types
 interface IpAccessControl {
   id?: number;
@@ -76,6 +101,7 @@ interface RelayInfo {
   supported_nips?: string;
   software?: string;
   version?: string;
+  limitation_max_limit?: number;
   limitation_max_message_length?: number;
   limitation_max_subscriptions?: number;
   limitation_max_filters?: number;
@@ -84,6 +110,7 @@ interface RelayInfo {
   limitation_auth_required: boolean;
   limitation_payment_required: boolean;
   icon?: string;
+  negentropy?: number;
 }
 
 type Tab = 'dashboard' | 'relays' | 'relay-info' | 'safelist' | 'ip' | 'kind' | 'filters' | 'logs';
@@ -395,6 +422,7 @@ function RelayInfoSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [selectedNips, setSelectedNips] = useState<number[]>([1, 11]);
 
   useEffect(() => {
     fetch('/api/relay-info')
@@ -402,6 +430,20 @@ function RelayInfoSection() {
       .then(data => { setInfo(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
+
+  // Parse supported_nips from info when it changes
+  useEffect(() => {
+    if (info.supported_nips) {
+      try {
+        const parsed = JSON.parse(info.supported_nips);
+        if (Array.isArray(parsed)) {
+          setSelectedNips(parsed.map((n: unknown) => Number(n)).filter((n: number) => !isNaN(n)));
+        }
+      } catch {
+        // If parsing fails, keep current selectedNips
+      }
+    }
+  }, [info.supported_nips]);
 
   const saveInfo = () => {
     setSaving(true);
@@ -471,16 +513,6 @@ function RelayInfoSection() {
         </div>
 
         <div className="form-group">
-          <label>Supported NIPs (JSON array)</label>
-          <input 
-            value={info.supported_nips || ''} 
-            onChange={e => setInfo({ ...info, supported_nips: e.target.value })}
-            placeholder="[1, 11, 50]"
-            style={{ fontFamily: 'monospace' }}
-          />
-        </div>
-
-        <div className="form-group">
           <label>Software URL</label>
           <input 
             value={info.software || ''} 
@@ -508,8 +540,44 @@ function RelayInfoSection() {
         </div>
       </div>
 
+      <h3 style={{ marginTop: '2rem' }}>Supported NIPs</h3>
+      <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '12px' }}>
+        Select the NIPs that this relay supports. NIP-01 (Basic protocol) and NIP-11 (Relay Information) are recommended as minimum.
+      </p>
+      <div className="nip-checkbox-grid">
+        {NIP_LIST.map(nip => (
+          <label key={nip.number} className="nip-checkbox-item">
+            <input
+              type="checkbox"
+              checked={selectedNips.includes(nip.number)}
+              onChange={(e) => {
+                const newNips = e.target.checked
+                  ? [...selectedNips, nip.number].sort((a, b) => a - b)
+                  : selectedNips.filter(n => n !== nip.number);
+                setSelectedNips(newNips);
+                setInfo({ ...info, supported_nips: JSON.stringify(newNips) });
+              }}
+            />
+            <span className="nip-label">
+              <strong>NIP-{String(nip.number).padStart(2, '0')}</strong>
+              <span className="nip-name">{nip.name}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
       <h3 style={{ marginTop: '2rem' }}>Limitations (Optional)</h3>
       <div className="form-grid">
+        <div className="form-group">
+          <label>Max Limit (REQ messages)</label>
+          <input 
+            type="number"
+            value={info.limitation_max_limit || ''} 
+            onChange={e => setInfo({ ...info, limitation_max_limit: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="500"
+          />
+        </div>
+
         <div className="form-group">
           <label>Max Message Length</label>
           <input 
@@ -577,6 +645,20 @@ function RelayInfoSection() {
             />
             Payment Required
           </label>
+        </div>
+      </div>
+
+      <h3 style={{ marginTop: '2rem' }}>Features</h3>
+      <div className="form-grid">
+        <div className="form-group">
+          <label>Negentropy Support</label>
+          <select 
+            value={info.negentropy || 0} 
+            onChange={e => setInfo({ ...info, negentropy: parseInt(e.target.value) })}
+          >
+            <option value={0}>Not Supported</option>
+            <option value={1}>Supported</option>
+          </select>
         </div>
       </div>
 

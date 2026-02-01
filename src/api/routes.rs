@@ -687,6 +687,27 @@ async fn get_stats(State(pool): State<SqlitePool>) -> Json<StatsResponse> {
 
 // NIP-11 Relay Information
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RelayInfoRowDb {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub pubkey: Option<String>,
+    pub contact: Option<String>,
+    pub supported_nips: Option<String>,
+    pub software: Option<String>,
+    pub version: Option<String>,
+    pub limitation_max_limit: Option<i64>,
+    pub limitation_max_message_length: Option<i64>,
+    pub limitation_max_subscriptions: Option<i64>,
+    pub limitation_max_filters: Option<i64>,
+    pub limitation_max_event_tags: Option<i64>,
+    pub limitation_max_content_length: Option<i64>,
+    pub limitation_auth_required: i64,
+    pub limitation_payment_required: i64,
+    pub icon: Option<String>,
+    pub negentropy: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayInfoRow {
     pub name: Option<String>,
@@ -696,6 +717,7 @@ pub struct RelayInfoRow {
     pub supported_nips: Option<String>,
     pub software: Option<String>,
     pub version: Option<String>,
+    pub limitation_max_limit: Option<i64>,
     pub limitation_max_message_length: Option<i64>,
     pub limitation_max_subscriptions: Option<i64>,
     pub limitation_max_filters: Option<i64>,
@@ -704,18 +726,15 @@ pub struct RelayInfoRow {
     pub limitation_auth_required: bool,
     pub limitation_payment_required: bool,
     pub icon: Option<String>,
+    pub negentropy: Option<i64>,
 }
 
 async fn get_relay_info(State(pool): State<SqlitePool>) -> Json<RelayInfoRow> {
-    let row = sqlx::query_as::<_, (
-        Option<String>, Option<String>, Option<String>, Option<String>, Option<String>,
-        Option<String>, Option<String>, Option<i64>, Option<i64>, Option<i64>,
-        Option<i64>, Option<i64>, i64, i64, Option<String>,
-    )>(
+    let row = sqlx::query_as::<_, RelayInfoRowDb>(
         "SELECT name, description, pubkey, contact, supported_nips, software, version, 
-         limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
+         limitation_max_limit, limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
          limitation_max_event_tags, limitation_max_content_length, limitation_auth_required,
-         limitation_payment_required, icon
+         limitation_payment_required, icon, negentropy
          FROM relay_info WHERE id = 1",
     )
     .fetch_optional(&pool)
@@ -723,26 +742,24 @@ async fn get_relay_info(State(pool): State<SqlitePool>) -> Json<RelayInfoRow> {
     .unwrap_or(None);
 
     match row {
-        Some((
-            name, description, pubkey, contact, supported_nips,
-            software, version, max_msg_len, max_subs, max_filters,
-            max_event_tags, max_content_len, auth_required, payment_required, icon,
-        )) => Json(RelayInfoRow {
-            name,
-            description,
-            pubkey,
-            contact,
-            supported_nips,
-            software,
-            version,
-            limitation_max_message_length: max_msg_len,
-            limitation_max_subscriptions: max_subs,
-            limitation_max_filters: max_filters,
-            limitation_max_event_tags: max_event_tags,
-            limitation_max_content_length: max_content_len,
-            limitation_auth_required: auth_required != 0,
-            limitation_payment_required: payment_required != 0,
-            icon,
+        Some(row) => Json(RelayInfoRow {
+            name: row.name,
+            description: row.description,
+            pubkey: row.pubkey,
+            contact: row.contact,
+            supported_nips: row.supported_nips,
+            software: row.software,
+            version: row.version,
+            limitation_max_limit: row.limitation_max_limit,
+            limitation_max_message_length: row.limitation_max_message_length,
+            limitation_max_subscriptions: row.limitation_max_subscriptions,
+            limitation_max_filters: row.limitation_max_filters,
+            limitation_max_event_tags: row.limitation_max_event_tags,
+            limitation_max_content_length: row.limitation_max_content_length,
+            limitation_auth_required: row.limitation_auth_required != 0,
+            limitation_payment_required: row.limitation_payment_required != 0,
+            icon: row.icon,
+            negentropy: if row.negentropy != 0 { Some(row.negentropy) } else { None },
         }),
         None => Json(RelayInfoRow {
             name: Some("Proxy Nostr Relay".to_string()),
@@ -752,6 +769,7 @@ async fn get_relay_info(State(pool): State<SqlitePool>) -> Json<RelayInfoRow> {
             supported_nips: Some("[1, 11]".to_string()),
             software: Some("https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
             version: Some("0.1.0".to_string()),
+            limitation_max_limit: None,
             limitation_max_message_length: None,
             limitation_max_subscriptions: None,
             limitation_max_filters: None,
@@ -760,6 +778,7 @@ async fn get_relay_info(State(pool): State<SqlitePool>) -> Json<RelayInfoRow> {
             limitation_auth_required: false,
             limitation_payment_required: false,
             icon: None,
+            negentropy: None,
         }),
     }
 }
@@ -767,24 +786,26 @@ async fn get_relay_info(State(pool): State<SqlitePool>) -> Json<RelayInfoRow> {
 async fn put_relay_info(State(pool): State<SqlitePool>, Json(body): Json<RelayInfoRow>) -> Json<()> {
     let auth_required = if body.limitation_auth_required { 1i64 } else { 0i64 };
     let payment_required = if body.limitation_payment_required { 1i64 } else { 0i64 };
+    let negentropy = body.negentropy.unwrap_or(0i64);
     
     let _ = sqlx::query(
         "INSERT INTO relay_info (id, name, description, pubkey, contact, supported_nips, software, version,
-         limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
+         limitation_max_limit, limitation_max_message_length, limitation_max_subscriptions, limitation_max_filters,
          limitation_max_event_tags, limitation_max_content_length, limitation_auth_required,
-         limitation_payment_required, icon)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         limitation_payment_required, icon, negentropy)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
          name = excluded.name, description = excluded.description, pubkey = excluded.pubkey,
          contact = excluded.contact, supported_nips = excluded.supported_nips, software = excluded.software,
-         version = excluded.version, limitation_max_message_length = excluded.limitation_max_message_length,
+         version = excluded.version, limitation_max_limit = excluded.limitation_max_limit,
+         limitation_max_message_length = excluded.limitation_max_message_length,
          limitation_max_subscriptions = excluded.limitation_max_subscriptions,
          limitation_max_filters = excluded.limitation_max_filters,
          limitation_max_event_tags = excluded.limitation_max_event_tags,
          limitation_max_content_length = excluded.limitation_max_content_length,
          limitation_auth_required = excluded.limitation_auth_required,
          limitation_payment_required = excluded.limitation_payment_required,
-         icon = excluded.icon,
+         icon = excluded.icon, negentropy = excluded.negentropy,
          updated_at = datetime('now')",
     )
     .bind(&body.name)
@@ -794,6 +815,7 @@ async fn put_relay_info(State(pool): State<SqlitePool>, Json(body): Json<RelayIn
     .bind(&body.supported_nips)
     .bind(&body.software)
     .bind(&body.version)
+    .bind(body.limitation_max_limit)
     .bind(body.limitation_max_message_length)
     .bind(body.limitation_max_subscriptions)
     .bind(body.limitation_max_filters)
@@ -802,6 +824,7 @@ async fn put_relay_info(State(pool): State<SqlitePool>, Json(body): Json<RelayIn
     .bind(auth_required)
     .bind(payment_required)
     .bind(&body.icon)
+    .bind(negentropy)
     .execute(&pool)
     .await;
     
