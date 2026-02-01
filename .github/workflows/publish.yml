@@ -22,10 +22,10 @@ jobs:
       - name: Build Frontend
         run: |
           cd web
-          npm install
+          npm ci
           npm run build
 
       - name: Publish to crates.io
-        run: cargo publish --token ${CRATES_TOKEN}
+        run: cargo publish --token ${CRATES_TOKEN} --allow-dirty
         env:
           CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
