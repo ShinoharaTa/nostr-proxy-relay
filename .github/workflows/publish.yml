@@ -37,4 +37,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-...
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Publish to crates.io
+        run: cargo publish --token ${CRATES_TOKEN} --allow-dirty
+        env:
+          CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
