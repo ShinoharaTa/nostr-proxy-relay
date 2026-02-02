@@ -16,6 +16,7 @@ jobs:
 
       - name: Check if version already exists on crates.io
         run: |
+          set -e
           CURRENT_VERSION=$(grep '^version' Cargo.toml | cut -d '"' -f 2)
           echo "Checking version: $CURRENT_VERSION"
           
@@ -23,14 +24,32 @@ jobs:
           API_RESPONSE=$(curl -s "https://crates.io/api/v1/crates/proxy-nostr-relay" || echo "")
           
           if [ -z "$API_RESPONSE" ]; then
-            echo "::warning::Failed to fetch version info from crates.io API"
-            echo "Proceeding with check assuming version is new..."
+            echo "::error::Failed to fetch version info from crates.io API"
+            echo "Cannot verify version uniqueness. Please check manually."
+            exit 1
+          fi
+          
+          # Parse versions using jq (should be available in GitHub Actions)
+          EXISTING_VERSIONS=$(echo "$API_RESPONSE" | jq -r '.versions[].num' 2>&1)
+          JQ_EXIT_CODE=$?
+          
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "::error::Failed to parse version info from crates.io API"
+            echo "jq error output: $EXISTING_VERSIONS"
+            exit 1
+          fi
+          
+          echo "Existing versions on crates.io:"
+          echo "$EXISTING_VERSIONS" | head -10
+          
+          if [ -z "$EXISTING_VERSIONS" ]; then
+            echo "No existing versions found (package may not exist yet)"
+            echo "✓ Version $CURRENT_VERSION can be published"
             exit 0
           fi
           
-          EXISTING_VERSIONS=$(echo "$API_RESPONSE" | jq -r '.versions[].num' 2>/dev/null || echo "")
-          
-          if echo "$EXISTING_VERSIONS" | grep -q "^${CURRENT_VERSION}$"; then
+          # Check if current version exists in the list
+          if echo "$EXISTING_VERSIONS" | grep -Fxq "$CURRENT_VERSION"; then
             echo "::error::Version $CURRENT_VERSION already exists on crates.io!"
             echo "Please update the version in Cargo.toml before merging this PR."
             exit 1
