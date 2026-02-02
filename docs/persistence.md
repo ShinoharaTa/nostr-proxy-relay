@@ -1,60 +1,62 @@
-# データの永続化と運用ガイド
+# Data Persistence and Operation Guide
 
-`proxy-nostr-relay` は、すべての設定、セーフリスト、ログ、統計情報を SQLite データベースに保存します。
-安定した運用のために、データの保存場所とバックアップ方法を理解しておくことが重要です。
+[日本語 (Japanese)](persistence_ja.md)
 
-## データ保存場所
+`proxy-nostr-relay` saves all settings, safelists, logs, and statistics in a SQLite database.
+For stable operation, it is important to understand the data storage location and backup methods.
 
-デフォルトでは、バイナリを実行したディレクトリに `data/` フォルダが作成され、その中にデータベースファイルが保存されます。
+## Data Storage Location
+
+By default, a `data/` folder is created in the directory where the binary is executed, and the database file is saved inside.
 
 ```text
 .
-├── proxy-nostr-relay (バイナリ)
+├── proxy-nostr-relay (Binary)
 └── data/
-    └── app.sqlite     <-- これが最も重要なファイルです
+    └── app.sqlite     <-- This is the most important file
 ```
 
-### データベースファイルの変更
-環境変数 `DATABASE_URL` を指定することで、保存場所を変更できます。
+### Changing the Database File Location
+You can change the storage location by specifying the `DATABASE_URL` environment variable.
 
 ```bash
 export DATABASE_URL="sqlite:/path/to/your/custom/location/relay.sqlite"
 ```
 
-## バックアップ手順
+## Backup Procedures
 
-SQLite は単一のファイルであるため、バックアップは非常に簡単です。ただし、アプリケーションが動作中に単純にファイルをコピーすると、書き込みタイミングによってはファイルが壊れる可能性があります。
+Since SQLite is a single file, backup is very easy. However, simply copying the file while the application is running may result in a corrupted file depending on the timing of writes.
 
-### 1. 安全なバックアップ（推奨）
-SQLite の `VACUUM INTO` 機能を使用するか、アプリケーションを一時停止してコピーします。
+### 1. Safe Backup (Recommended)
+Use SQLite's `VACUUM INTO` feature or temporarily stop the application before copying.
 
-**手動バックアップ例:**
+**Manual Backup Example:**
 ```bash
-# アプリケーションを停止
-# ファイルをコピー
+# Stop the application
+# Copy the file
 cp data/app.sqlite data/app.sqlite.bak.$(date +%Y%m%d)
-# アプリケーションを再起動
+# Restart the application
 ```
 
-### 2. 定期バックアップの自動化
-cron などを使用して、定期的に `data/` ディレクトリ全体を別のストレージやクラウドに同期することを強く推奨します。
+### 2. Automating Regular Backups
+It is highly recommended to use cron or similar tools to regularly synchronize the entire `data/` directory to another storage or cloud.
 
-## サーバーの移行（引っ越し）
+## Server Migration (Moving)
 
-別のサーバーにリレーを移行する場合は、以下の手順で行います。
+To migrate the relay to another server, follow these steps:
 
-1.  新しいサーバーで `cargo install proxy-nostr-relay` を実行。
-2.  旧サーバーの `data/app.sqlite` を取得。
-3.  新サーバーの適切な場所に `data/` ディレクトリを作成し、ファイルを配置。
-4.  環境変数を設定して起動。
+1.  Run `cargo install proxy-nostr-relay` on the new server.
+2.  Obtain `data/app.sqlite` from the old server.
+3.  Create the `data/` directory in the appropriate location on the new server and place the file.
+4.  Set environment variables and start the server.
 
-## トラブルシューティング
+## Troubleshooting
 
-### データベースが壊れた場合
-起動時にデータベースエラーが出る場合は、以下の手順を試してください。
+### If the Database is Corrupted
+If a database error occurs at startup, try the following steps:
 
-1.  `data/app.sqlite` のバックアップを取る。
-2.  ファイルを削除して起動し、新規データベースが作成されるか確認する。
-3.  バックアップから復元を試みる。
+1.  Take a backup of `data/app.sqlite`.
+2.  Delete the file and start the server to see if a new database is created.
+3.  Attempt to restore from the backup.
 
-> **注意**: `data/` ディレクトリを削除すると、管理画面で設定したリレー情報やセーフリスト、蓄積された統計情報がすべて消失します。
+> **Note**: Deleting the `data/` directory will result in the loss of all relay information, safelists, and accumulated statistics configured in the admin UI.

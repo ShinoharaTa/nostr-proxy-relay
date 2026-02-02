@@ -1,52 +1,54 @@
-# 開発者ガイド
+# Developer Guide
 
-このプロジェクトをソースからビルドしたり、改造したりするためのガイドです。
+[日本語 (Japanese)](development_ja.md)
 
-## 必要環境
-- **Rust**: 1.75以上
-- **Node.js**: 20以上 (フロントエンドビルド用)
+This guide is for those who want to build this project from source or modify it.
+
+## Requirements
+- **Rust**: 1.75 or higher
+- **Node.js**: 20 or higher (for frontend build)
 - **SQLite**: 3.x
 
-## ビルド手順
+## Build Procedures
 
-### 1. 全体のビルド (推奨)
-`cargo build` を実行すると、`build.rs` が自動的にフロントエンドをビルドし、バイナリに埋め込みます。
+### 1. Full Build (Recommended)
+Running `cargo build` will automatically build the frontend via `build.rs` and embed it into the binary.
 
 ```bash
 cargo build --release
 ```
 
-### 2. フロントエンドのみビルド
+### 2. Frontend Only Build
 ```bash
 cd web
 npm ci
 npm run build
 ```
 
-## 開発モード
+## Development Mode
 
-フロントエンドとバックエンドを個別に起動して、ホットリロードを有効にします。
+Start the frontend and backend separately to enable hot reloading.
 
-### ターミナル 1: バックエンド
+### Terminal 1: Backend
 ```bash
 export ADMIN_USER=admin
 export ADMIN_PASS=admin
 cargo run
 ```
 
-### ターミナル 2: フロントエンド
+### Terminal 2: Frontend
 ```bash
 cd web
 npm run dev
 ```
-`http://localhost:3000` で開発サーバーが立ち上がり、API リクエストは自動的に 8080 ポートへプロキシされます。
+The development server will start at `http://localhost:3000`, and API requests will be automatically proxied to port 8080.
 
-## プロジェクト構造
-- `src/`: Rust バックエンドソース
-  - `api/`: HTTP API 実装
-  - `proxy/`: WebSocket プロキシロジック
-  - `filter/`: フィルタリングエンジン
-  - `parser/`: DSL パーサー
-- `web/`: React フロントエンドソース
-- `migrations/`: データベースマイグレーションファイル
-- `docs/`: ドキュメント
+## Project Structure
+- `src/`: Rust backend source
+  - `api/`: HTTP API implementation
+  - `proxy/`: WebSocket proxy logic
+  - `filter/`: Filtering engine
+  - `parser/`: DSL parser
+- `web/`: React frontend source
+- `migrations/`: Database migration files
+- `docs/`: Documentation

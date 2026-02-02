@@ -1,33 +1,35 @@
-# 設定リファレンス
+# Configuration Reference
 
-`proxy-nostr-relay` は環境変数を使用して動作をカスタマイズできます。
+[日本語 (Japanese)](configuration_ja.md)
 
-## 環境変数一覧
+`proxy-nostr-relay` can be customized using environment variables.
 
-設定は `export` コマンドを使用して行います。
+## Environment Variables List
 
-| 変数名 | 説明 | 必須 | デフォルト値 |
+Settings are performed using the `export` command.
+
+| Variable Name | Description | Required | Default Value |
 | :--- | :--- | :--- | :--- |
-| `ADMIN_USER` | 管理画面（/config）のログインユーザー名 | ✅ | - |
-| `ADMIN_PASS` | 管理画面（/config）のログインパスワード | ✅ | - |
-| `DATABASE_URL` | SQLite データベースのパス | ❌ | `sqlite:data/app.sqlite` |
-| `RELAY_URL` | ランディングページに表示する自リレーのURL | ❌ | `wss://your-relay.example.com` |
-| `GITHUB_URL` | ランディングページに表示するソースコードURL | ❌ | プロジェクトのリポジトリURL |
-| `RUST_LOG` | ログの出力レベル (`debug`, `info`, `warn`, `error`) | ❌ | `info` |
+| `ADMIN_USER` | Login username for the admin UI (/config) | ✅ | - |
+| `ADMIN_PASS` | Login password for the admin UI (/config) | ✅ | - |
+| `DATABASE_URL` | Path to the SQLite database | ❌ | `sqlite:data/app.sqlite` |
+| `RELAY_URL` | URL of your relay displayed on the landing page | ❌ | `wss://your-relay.example.com` |
+| `GITHUB_URL` | Source code URL displayed on the landing page | ❌ | Project repository URL |
+| `RUST_LOG` | Log output level (`debug`, `info`, `warn`, `error`) | ❌ | `info` |
 
-## 運用例
+## Operation Examples
 
-### 1. シェルでの実行
+### 1. Execution in Shell
 ```bash
 export ADMIN_USER=admin
 export ADMIN_PASS=your-secure-password
 proxy-nostr-relay
 ```
 
-### 2. systemd による自動起動 (Linux)
-サーバー再起動時に自動的にリレーを立ち上げるには、systemd を使用します。
+### 2. Auto-start with systemd (Linux)
+To automatically start the relay upon server reboot, use systemd.
 
-`/etc/systemd/system/proxy-nostr-relay.service` の作成例:
+Example of creating `/etc/systemd/system/proxy-nostr-relay.service`:
 
 ```ini
 [Unit]
@@ -38,12 +40,12 @@ After=network.target
 Type=simple
 User=your-user
 WorkingDirectory=/home/your-user/nostr-relay
-# 環境変数の設定
+# Environment Variable Settings
 Environment="ADMIN_USER=admin"
 Environment="ADMIN_PASS=your-secure-password"
 Environment="DATABASE_URL=sqlite:/home/your-user/nostr-relay/data/app.sqlite"
 Environment="RUST_LOG=info"
-# 実行コマンド
+# Execution Command
 ExecStart=/home/your-user/.cargo/bin/proxy-nostr-relay
 Restart=always
 
@@ -51,18 +53,18 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-**サービスの有効化:**
+**Enabling the Service:**
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable proxy-nostr-relay
 sudo systemctl start proxy-nostr-relay
 ```
 
-## リバースプロキシの設定 (SSL/WSS化)
+## Reverse Proxy Configuration (SSL/WSS)
 
-Nostr クライアントから接続するためには、通常 SSL (wss://) が必要です。Nginx 等をフロントに置くことを推奨します。
+To connect from a Nostr client, SSL (wss://) is usually required. It is recommended to place Nginx or similar as a front-end.
 
-**Nginx 設定例:**
+**Nginx Configuration Example:**
 ```nginx
 server {
     server_name your-relay.example.com;
