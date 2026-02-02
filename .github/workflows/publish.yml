@@ -16,47 +16,95 @@ jobs:
 
       - name: Check if version already exists on crates.io
         run: |
-          set -e
-          CURRENT_VERSION=$(grep '^version' Cargo.toml | cut -d '"' -f 2)
+          set -euo pipefail
+
+          # Robust parsing of Cargo.toml via Python (tomllib).
+          python3 - <<'PY' > /tmp/crate_info.txt
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))
+          pkg = data.get("package", {})
+          name = pkg.get("name")
+          ver = pkg.get("version")
+          if not name or not ver:
+            raise SystemExit("Missing [package].name or [package].version in Cargo.toml")
+          print(name)
+          print(ver)
+          PY
+
+          CRATE_NAME="$(sed -n '1p' /tmp/crate_info.txt)"
+          CURRENT_VERSION="$(sed -n '2p' /tmp/crate_info.txt)"
+          echo "Checking crate: $CRATE_NAME"
           echo "Checking version: $CURRENT_VERSION"
-          
-          # Fetch version info from crates.io API
-          API_RESPONSE=$(curl -s "https://crates.io/api/v1/crates/proxy-nostr-relay" || echo "")
-          
-          if [ -z "$API_RESPONSE" ]; then
-            echo "::error::Failed to fetch version info from crates.io API"
-            echo "Cannot verify version uniqueness. Please check manually."
-            exit 1
-          fi
-          
-          # Parse versions using jq (should be available in GitHub Actions)
-          EXISTING_VERSIONS=$(echo "$API_RESPONSE" | jq -r '.versions[].num' 2>&1)
-          JQ_EXIT_CODE=$?
-          
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Failed to parse version info from crates.io API"
-            echo "jq error output: $EXISTING_VERSIONS"
-            exit 1
-          fi
-          
-          echo "Existing versions on crates.io:"
-          echo "$EXISTING_VERSIONS" | head -10
-          
-          if [ -z "$EXISTING_VERSIONS" ]; then
-            echo "No existing versions found (package may not exist yet)"
-            echo "✓ Version $CURRENT_VERSION can be published"
-            exit 0
-          fi
-          
-          # Check if current version exists in the list
-          if echo "$EXISTING_VERSIONS" | grep -Fxq "$CURRENT_VERSION"; then
-            echo "::error::Version $CURRENT_VERSION already exists on crates.io!"
-            echo "Please update the version in Cargo.toml before merging this PR."
-            exit 1
-          else
+
+          # Fetch versions from crates.io-index (hosted on GitHub).
+          # This avoids crates.io API flakiness/403 and is the authoritative registry index.
+          export CRATE_NAME CURRENT_VERSION
+          INDEX_PATH="$(python3 - <<'PY'
+          import os
+
+          name = os.environ["CRATE_NAME"]
+          lower = name.lower()
+          if len(lower) == 1:
+            print(f"1/{lower}")
+          elif len(lower) == 2:
+            print(f"2/{lower}")
+          elif len(lower) == 3:
+            print(f"3/{lower[0]}/{lower}")
+          else:
+            print(f"{lower[0:2]}/{lower[2:4]}/{lower}")
+          PY
+          )"
+
+          INDEX_URL="https://raw.githubusercontent.com/rust-lang/crates.io-index/master/${INDEX_PATH}"
+          echo "Index URL: $INDEX_URL"
+
+          # If crate does not exist in the index yet, raw will return 404.
+          # Treat 404 as "no published versions".
+          HTTP_CODE="$(curl -sS -L -o /tmp/index.jsonl -w "%{http_code}" \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            "$INDEX_URL" || true)"
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "Crate not found in crates.io-index yet (no published versions)."
             echo "✓ Version $CURRENT_VERSION is new and can be published"
             exit 0
           fi
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to fetch crates.io-index entry (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          crate_name = os.environ["CRATE_NAME"]
+          current_version = os.environ["CURRENT_VERSION"]
+
+          lines = Path("/tmp/index.jsonl").read_text(encoding="utf-8").splitlines()
+          versions = []
+          for line in lines:
+            if not line.strip():
+              continue
+            obj = json.loads(line)
+            v = obj.get("vers")
+            if isinstance(v, str):
+              versions.append(v)
+
+          print("Existing versions in crates.io-index (first 10):")
+          for v in versions[:10]:
+            print(v)
+
+          if current_version in versions:
+            print(f"::error::Version {current_version} already exists on crates.io for {crate_name}!")
+            print("Please bump Cargo.toml [package].version before merging this PR.")
+            sys.exit(1)
+
+          print(f"✓ Version {current_version} is new and can be published")
+          PY
 
   publish:
     needs: check_version
