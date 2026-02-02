@@ -31,7 +31,11 @@ build/
 
 # Node modules (for web frontend)
 web/node_modules/
-web/dist/
+
+# Frontend build output
+# `web/dist` は管理画面(`/config`)の配信に必要なため、Git管理対象にする
+!web/dist/
+!web/dist/**
 
 # Temporary files
 *.tmp

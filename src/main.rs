@@ -225,7 +225,12 @@ async fn main() -> anyhow::Result<()> {
             }
         }))
         .nest_service("/assets", tower::service_fn(|req: axum::http::Request<axum::body::Body>| async move {
-            let path = req.uri().path().trim_start_matches('/').to_string();
+            // `nest_service("/assets", ...)` はリクエストパスから `/assets` プレフィックスを取り除いて
+            // サービスに渡すため、ここで埋め込み資産の実パス `assets/...` に正規化する。
+            let mut path = req.uri().path().trim_start_matches('/').to_string();
+            if !path.starts_with("assets/") {
+                path = format!("assets/{}", path);
+            }
             match Asset::get(&path) {
                 Some(content) => {
                     let mime = mime_guess::from_path(&path).first_or_octet_stream();
