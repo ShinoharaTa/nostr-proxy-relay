@@ -38,30 +38,69 @@ jobs:
           echo "Checking crate: $CRATE_NAME"
           echo "Checking version: $CURRENT_VERSION"
 
-          # Fetch version info from crates.io API (fail on HTTP errors).
-          API_RESPONSE="$(curl -fsSL "https://crates.io/api/v1/crates/${CRATE_NAME}")"
+          # Fetch versions from crates.io-index (hosted on GitHub).
+          # This avoids crates.io API flakiness/403 and is the authoritative registry index.
+          INDEX_PATH="$(python3 - <<PY
+          name = ${CRATE_NAME!r}
+          lower = name.lower()
+          if len(lower) == 1:
+            print(f"1/{lower}")
+          elif len(lower) == 2:
+            print(f"2/{lower}")
+          elif len(lower) == 3:
+            print(f"3/{lower[0]}/{lower}")
+          else:
+            print(f"{lower[0:2]}/{lower[2:4]}/{lower}")
+          PY
+          )"
 
-          # Parse JSON using Python (avoid jq availability issues).
+          INDEX_URL="https://raw.githubusercontent.com/rust-lang/crates.io-index/master/${INDEX_PATH}"
+          echo "Index URL: $INDEX_URL"
+
+          # If crate does not exist in the index yet, raw will return 404.
+          # Treat 404 as "no published versions".
+          HTTP_CODE="$(curl -sS -L -o /tmp/index.jsonl -w "%{http_code}" \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            "$INDEX_URL" || true)"
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "Crate not found in crates.io-index yet (no published versions)."
+            echo "✓ Version $CURRENT_VERSION is new and can be published"
+            exit 0
+          fi
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to fetch crates.io-index entry (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+
           python3 - <<PY
           import json, sys
+          from pathlib import Path
 
           crate_name = ${CRATE_NAME!r}
           current_version = ${CURRENT_VERSION!r}
-          payload = json.loads(${API_RESPONSE!r})
 
-          versions = payload.get("versions", [])
-          nums = []
-          for v in versions:
-            if isinstance(v, dict) and isinstance(v.get("num"), str):
-              nums.append(v["num"])
+          lines = Path("/tmp/index.jsonl").read_text(encoding="utf-8").splitlines()
+          versions = []
+          for line in lines:
+            if not line.strip():
+              continue
+            try:
+              obj = json.loads(line)
+            except json.JSONDecodeError:
+              continue
+            v = obj.get("vers")
+            if isinstance(v, str):
+              versions.append(v)
 
-          print("Existing versions on crates.io (first 10):")
-          for n in nums[:10]:
-            print(n)
+          print("Existing versions in crates.io-index (first 10):")
+          for v in versions[:10]:
+            print(v)
 
-          if current_version in nums:
+          if current_version in versions:
             print(f"::error::Version {current_version} already exists on crates.io for {crate_name}!")
-            print("Please update Cargo.toml [package].version before merging this PR.")
+            print("Please bump Cargo.toml [package].version before merging this PR.")
             sys.exit(1)
 
           print(f"✓ Version {current_version} is new and can be published")
