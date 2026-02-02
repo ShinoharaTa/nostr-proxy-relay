@@ -40,8 +40,11 @@ jobs:
 
           # Fetch versions from crates.io-index (hosted on GitHub).
           # This avoids crates.io API flakiness/403 and is the authoritative registry index.
-          INDEX_PATH="$(python3 - <<PY
-          name = ${CRATE_NAME!r}
+          export CRATE_NAME CURRENT_VERSION
+          INDEX_PATH="$(python3 - <<'PY'
+          import os
+
+          name = os.environ["CRATE_NAME"]
           lower = name.lower()
           if len(lower) == 1:
             print(f"1/{lower}")
@@ -74,22 +77,19 @@ jobs:
             exit 1
           fi
 
-          python3 - <<PY
-          import json, sys
+          python3 - <<'PY'
+          import json, os, sys
           from pathlib import Path
 
-          crate_name = ${CRATE_NAME!r}
-          current_version = ${CURRENT_VERSION!r}
+          crate_name = os.environ["CRATE_NAME"]
+          current_version = os.environ["CURRENT_VERSION"]
 
           lines = Path("/tmp/index.jsonl").read_text(encoding="utf-8").splitlines()
           versions = []
           for line in lines:
             if not line.strip():
               continue
-            try:
-              obj = json.loads(line)
-            except json.JSONDecodeError:
-              continue
+            obj = json.loads(line)
             v = obj.get("vers")
             if isinstance(v, str):
               versions.append(v)
