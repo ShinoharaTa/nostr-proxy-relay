@@ -23,19 +23,36 @@ jobs:
           API_RESPONSE=$(curl -s "https://crates.io/api/v1/crates/proxy-nostr-relay" || echo "")
           
           if [ -z "$API_RESPONSE" ]; then
-            echo "::warning::Failed to fetch version info from crates.io API"
-            echo "Proceeding with check assuming version is new..."
+            echo "::error::Failed to fetch version info from crates.io API"
+            echo "Cannot verify version uniqueness. Please check manually."
+            exit 1
+          fi
+          
+          # Parse versions using jq (should be available in GitHub Actions)
+          EXISTING_VERSIONS=$(echo "$API_RESPONSE" | jq -r '.versions[].num' 2>&1)
+          
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to parse version info from crates.io API"
+            echo "jq error: $EXISTING_VERSIONS"
+            exit 1
+          fi
+          
+          if [ -z "$EXISTING_VERSIONS" ]; then
+            echo "No existing versions found (package may not exist yet)"
+            echo "✓ Version $CURRENT_VERSION can be published"
             exit 0
           fi
           
-          EXISTING_VERSIONS=$(echo "$API_RESPONSE" | jq -r '.versions[].num' 2>/dev/null || echo "")
-          
           if echo "$EXISTING_VERSIONS" | grep -q "^${CURRENT_VERSION}$"; then
             echo "::error::Version $CURRENT_VERSION already exists on crates.io!"
+            echo "Existing versions:"
+            echo "$EXISTING_VERSIONS" | head -10
             echo "Please update the version in Cargo.toml before merging this PR."
             exit 1
           else
             echo "✓ Version $CURRENT_VERSION is new and can be published"
+            echo "Existing versions (for reference):"
+            echo "$EXISTING_VERSIONS" | head -5
             exit 0
           fi
 
