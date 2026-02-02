@@ -7,6 +7,15 @@ use axum::{
     Router,
 };
 use pulldown_cmark::{html, Options, Parser};
+use rust_embed::Embed;
+
+/// Embedded documentation assets (Markdown files under `docs/`).
+///
+/// This makes `/docs` work even when the binary is installed via `cargo install`
+/// and executed outside of the repository directory.
+#[derive(Embed)]
+#[folder = "docs"]
+struct DocAsset;
 
 /// Create the documentation router (public, no auth required)
 pub fn router() -> Router {
@@ -706,20 +715,19 @@ async fn serve_doc(name: &str) -> impl IntoResponse {
         return Html(html_template("Not Found", "<h1>404 - Page Not Found</h1>"));
     }
     
-    let file_path = format!("docs/{}.md", safe_name);
-    
-    match std::fs::read_to_string(&file_path) {
-        Ok(markdown) => {
+    let asset_path = format!("{}.md", safe_name);
+
+    match DocAsset::get(&asset_path) {
+        Some(content) => {
+            let markdown = String::from_utf8_lossy(&content.data).to_string();
             let html_content = render_markdown(&markdown);
             let title = extract_title(&markdown).unwrap_or_else(|| safe_name.clone());
             Html(html_template(&title, &html_content))
         }
-        Err(_) => {
-            Html(html_template(
-                "Not Found",
-                "<h1>404 - Page Not Found</h1><p>The requested documentation page was not found.</p>",
-            ))
-        }
+        None => Html(html_template(
+            "Not Found",
+            "<h1>404 - Page Not Found</h1><p>The requested documentation page was not found.</p>",
+        )),
     }
 }
 
