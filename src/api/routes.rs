@@ -1,16 +1,19 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, Query, State},
     routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::sync::Arc;
 
-use crate::{auth, parser::filter_query};
+use crate::{auth, parser::filter_query, relay_pool::RelayPool};
 
-pub fn router(pool: SqlitePool) -> Router {
+pub fn router(pool: SqlitePool, relay_pool: Arc<RelayPool>) -> Router {
     Router::new()
         .route("/relay", get(get_relays).put(put_relays))
+        .route("/relay-status", get(get_relay_status))
+        .route("/relay-nip11", get(get_relay_nip11))
         .route("/safelist", get(list_safelist).post(upsert_safelist))
         .route("/safelist/:npub", delete(delete_safelist))
         .route("/safelist/:npub/ban", put(ban_npub))
@@ -25,9 +28,54 @@ pub fn router(pool: SqlitePool) -> Router {
         .route("/connection-logs", get(get_connection_logs))
         .route("/event-rejection-logs", get(get_event_rejection_logs))
         .route("/stats", get(get_stats))
+        .route("/stats/timeseries", get(get_stats_timeseries))
         .route("/relay-info", get(get_relay_info).put(put_relay_info))
+        .route("/simple-ban-rules", get(list_simple_ban_rules).post(create_simple_ban_rule))
+        .route("/simple-ban-rules/:id", put(update_simple_ban_rule).delete(delete_simple_ban_rule))
         .with_state(pool.clone())
+        .layer(Extension(relay_pool))
         .layer(axum::middleware::from_fn_with_state(pool, auth::basic_auth))
+}
+
+async fn get_relay_status(Extension(relay_pool): Extension<Arc<RelayPool>>) -> Json<serde_json::Value> {
+    let relays = relay_pool.status_snapshot().await;
+    Json(serde_json::json!({ "relays": relays }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RelayNip11Query {
+    pub url: String,
+}
+
+async fn get_relay_nip11(Query(q): Query<RelayNip11Query>) -> Result<Json<serde_json::Value>, (axum::http::StatusCode, String)> {
+    let url = q.url.trim();
+    if url.is_empty() {
+        return Err((axum::http::StatusCode::BAD_REQUEST, "missing url".to_string()));
+    }
+    let http_url = url
+        .replace("wss://", "https://")
+        .replace("ws://", "http://");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let resp = client
+        .get(&http_url)
+        .header("Accept", "application/nostr+json")
+        .send()
+        .await
+        .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e.to_string()))?;
+    if !resp.status().is_success() {
+        return Err((
+            axum::http::StatusCode::BAD_GATEWAY,
+            format!("relay returned {}", resp.status()),
+        ));
+    }
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| (axum::http::StatusCode::BAD_GATEWAY, e.to_string()))?;
+    Ok(Json(body))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,20 +550,35 @@ pub struct GetConnectionLogsQuery {
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: Option<i64>,
+    #[serde(default)]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
 }
 
 async fn get_connection_logs(
     State(pool): State<SqlitePool>,
     axum::extract::Query(params): axum::extract::Query<GetConnectionLogsQuery>,
 ) -> Json<Vec<ConnectionLogRow>> {
-    let limit = params.limit.unwrap_or(100);
+    let limit = params.limit.unwrap_or(100).min(500);
     let offset = params.offset.unwrap_or(0);
     let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, i64, i64)>(
         "SELECT id, ip_address, connected_at, disconnected_at, event_count, rejected_event_count 
          FROM connection_logs 
+         WHERE (? IS NULL OR ip_address LIKE '%' || ? || '%')
+           AND (connected_at >= ? OR ? IS NULL)
+           AND (connected_at <= ? OR ? IS NULL)
          ORDER BY connected_at DESC 
          LIMIT ? OFFSET ?",
     )
+    .bind(params.ip_address.as_deref())
+    .bind(params.ip_address.as_deref().unwrap_or(""))
+    .bind(params.from.as_deref())
+    .bind(params.from.as_deref())
+    .bind(params.to.as_deref())
+    .bind(params.to.as_deref())
     .bind(limit)
     .bind(offset)
     .fetch_all(&pool)
@@ -555,20 +618,45 @@ pub struct GetEventRejectionLogsQuery {
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: Option<i64>,
+    #[serde(default)]
+    pub npub: Option<String>,
+    #[serde(default)]
+    pub kind: Option<i64>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
 }
 
 async fn get_event_rejection_logs(
     State(pool): State<SqlitePool>,
     axum::extract::Query(params): axum::extract::Query<GetEventRejectionLogsQuery>,
 ) -> Json<Vec<EventRejectionLogRow>> {
-    let limit = params.limit.unwrap_or(100);
+    let limit = params.limit.unwrap_or(100).min(500);
     let offset = params.offset.unwrap_or(0);
     let rows = sqlx::query_as::<_, (i64, String, String, String, Option<String>, i64, String, String)>(
         "SELECT id, event_id, pubkey_hex, npub, ip_address, kind, reason, created_at 
          FROM event_rejection_logs 
+         WHERE (? IS NULL OR npub LIKE '%' || ? || '%')
+           AND (kind = ? OR ? IS NULL)
+           AND (? IS NULL OR reason LIKE '%' || ? || '%')
+           AND (created_at >= ? OR ? IS NULL)
+           AND (created_at <= ? OR ? IS NULL)
          ORDER BY created_at DESC 
          LIMIT ? OFFSET ?",
     )
+    .bind(params.npub.as_deref())
+    .bind(params.npub.as_deref().unwrap_or(""))
+    .bind(params.kind)
+    .bind(params.kind)
+    .bind(params.reason.as_deref())
+    .bind(params.reason.as_deref().unwrap_or(""))
+    .bind(params.from.as_deref())
+    .bind(params.from.as_deref())
+    .bind(params.to.as_deref())
+    .bind(params.to.as_deref())
     .bind(limit)
     .bind(offset)
     .fetch_all(&pool)
@@ -683,6 +771,177 @@ async fn get_stats(State(pool): State<SqlitePool>) -> Json<StatsResponse> {
         top_npubs_by_rejections,
         top_ips_by_rejections,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetStatsTimeseriesQuery {
+    #[serde(default)]
+    pub period: Option<String>,
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatsTimeseriesBucket {
+    pub time: String,
+    pub rejections: i64,
+    pub events: i64,
+}
+
+async fn get_stats_timeseries(
+    State(pool): State<SqlitePool>,
+    axum::extract::Query(params): axum::extract::Query<GetStatsTimeseriesQuery>,
+) -> Json<Vec<StatsTimeseriesBucket>> {
+    let period = params.period.as_deref().unwrap_or("1h");
+    let format_str = if period == "1d" {
+        "%Y-%m-%d"
+    } else {
+        "%Y-%m-%d %H:00"
+    };
+    let rows = sqlx::query_as::<_, (String, i64)>(
+        "SELECT strftime(?, created_at) as bucket, COUNT(*) as cnt 
+         FROM event_rejection_logs 
+         WHERE (created_at >= ? OR ? IS NULL) AND (created_at <= ? OR ? IS NULL)
+         GROUP BY bucket ORDER BY bucket ASC LIMIT 168",
+    )
+    .bind(format_str)
+    .bind(params.from.as_deref())
+    .bind(params.from.as_deref())
+    .bind(params.to.as_deref())
+    .bind(params.to.as_deref())
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    let buckets: Vec<StatsTimeseriesBucket> = rows
+        .into_iter()
+        .map(|(time, rejections)| StatsTimeseriesBucket {
+            time,
+            rejections,
+            events: 0,
+        })
+        .collect();
+    Json(buckets)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleBanRuleRow {
+    pub id: i64,
+    pub rule_type: String,
+    pub npub_list: Option<String>,
+    pub kind_list: Option<String>,
+    pub tag_name: Option<String>,
+    pub tag_value_pattern: Option<String>,
+    pub enabled: bool,
+    pub memo: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSimpleBanRuleBody {
+    pub rule_type: String,
+    pub npub_list: Option<String>,
+    pub kind_list: Option<String>,
+    pub tag_name: Option<String>,
+    pub tag_value_pattern: Option<String>,
+    pub enabled: Option<bool>,
+    pub memo: Option<String>,
+}
+
+async fn list_simple_ban_rules(State(pool): State<SqlitePool>) -> Json<Vec<SimpleBanRuleRow>> {
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<String>, Option<String>, i64, Option<String>, String, String)>(
+        "SELECT id, rule_type, npub_list, kind_list, tag_name, tag_value_pattern, enabled, memo, created_at, updated_at FROM simple_ban_rules ORDER BY id ASC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    Json(
+        rows.into_iter()
+            .map(|(id, rule_type, npub_list, kind_list, tag_name, tag_value_pattern, enabled, memo, created_at, updated_at)| {
+                SimpleBanRuleRow {
+                    id,
+                    rule_type,
+                    npub_list,
+                    kind_list,
+                    tag_name,
+                    tag_value_pattern,
+                    enabled: enabled != 0,
+                    memo,
+                    created_at,
+                    updated_at,
+                }
+            })
+            .collect(),
+    )
+}
+
+async fn create_simple_ban_rule(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<CreateSimpleBanRuleBody>,
+) -> Json<SimpleBanRuleRow> {
+    let enabled = body.enabled.unwrap_or(true);
+    let _ = sqlx::query(
+        "INSERT INTO simple_ban_rules (rule_type, npub_list, kind_list, tag_name, tag_value_pattern, enabled, memo) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&body.rule_type)
+    .bind(body.npub_list.as_deref())
+    .bind(body.kind_list.as_deref())
+    .bind(body.tag_name.as_deref())
+    .bind(body.tag_value_pattern.as_deref())
+    .bind(if enabled { 1i64 } else { 0i64 })
+    .bind(body.memo.as_deref())
+    .execute(&pool)
+    .await;
+    let row: (i64, String, Option<String>, Option<String>, Option<String>, Option<String>, i64, Option<String>, String, String) = sqlx::query_as(
+        "SELECT id, rule_type, npub_list, kind_list, tag_name, tag_value_pattern, enabled, memo, created_at, updated_at FROM simple_ban_rules ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or((0, String::new(), None, None, None, None, 0, None, String::new(), String::new()));
+    Json(SimpleBanRuleRow {
+        id: row.0,
+        rule_type: row.1,
+        npub_list: row.2,
+        kind_list: row.3,
+        tag_name: row.4,
+        tag_value_pattern: row.5,
+        enabled: row.6 != 0,
+        memo: row.7,
+        created_at: row.8,
+        updated_at: row.9,
+    })
+}
+
+async fn update_simple_ban_rule(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(body): Json<CreateSimpleBanRuleBody>,
+) -> Json<()> {
+    let enabled = body.enabled.unwrap_or(true);
+    let _ = sqlx::query(
+        "UPDATE simple_ban_rules SET rule_type = ?, npub_list = ?, kind_list = ?, tag_name = ?, tag_value_pattern = ?, enabled = ?, memo = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .bind(&body.rule_type)
+    .bind(body.npub_list.as_deref())
+    .bind(body.kind_list.as_deref())
+    .bind(body.tag_name.as_deref())
+    .bind(body.tag_value_pattern.as_deref())
+    .bind(if enabled { 1i64 } else { 0i64 })
+    .bind(body.memo.as_deref())
+    .bind(id)
+    .execute(&pool)
+    .await;
+    Json(())
+}
+
+async fn delete_simple_ban_rule(State(pool): State<SqlitePool>, Path(id): Path<i64>) -> Json<()> {
+    let _ = sqlx::query("DELETE FROM simple_ban_rules WHERE id = ?")
+        .bind(id)
+        .execute(&pool)
+        .await;
+    Json(())
 }
 
 // NIP-11 Relay Information

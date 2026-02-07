@@ -6,6 +6,8 @@ mod parser;
 mod auth;
 mod api;
 mod docs;
+mod relay_pool;
+mod metrics;
 
 use db::{connect, migrate::migrate};
 use anyhow::Context;
@@ -19,8 +21,10 @@ use axum::{
     response::{Html, IntoResponse, Json},
 };
 use std::net::SocketAddr;
+use std::sync::Arc;
 use sqlx::SqlitePool;
 use rust_embed::Embed;
+use crate::relay_pool::RelayPool;
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -171,6 +175,13 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("db migrated ok");
 
+    let relay_pool = RelayPool::new(pool.clone());
+
+    if let Some(influx) = metrics::InfluxExporter::from_env() {
+        influx.clone().run(pool.clone(), Some(relay_pool.clone()));
+        tracing::info!("InfluxDB metrics exporter started");
+    }
+
     // Landing page configuration from environment variables
     let landing_config = docs::LandingPageConfig {
         relay_url: std::env::var("RELAY_URL").unwrap_or_else(|_| "wss://your-relay.example.com".to_string()),
@@ -252,7 +263,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(protected)
-        .nest("/api", api::routes::router(pool.clone()))
+        .nest("/api", api::routes::router(pool.clone(), relay_pool))
         .nest("/docs", docs::router())
         .route(
             "/",
