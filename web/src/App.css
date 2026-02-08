@@ -74,6 +74,12 @@ header h1::before {
   border-radius: 4px;
 }
 
+.app-version {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 /* Navigation Tabs */
 .tabs {
   display: flex;

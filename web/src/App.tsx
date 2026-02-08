@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import { api } from './api'
 
 // NIP List with names for checkbox selection
 const NIP_LIST = [
@@ -117,11 +118,19 @@ type Tab = 'dashboard' | 'relays' | 'relay-info' | 'safelist' | 'ip' | 'kind' | 
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getAppVersion().then((r: { version: string }) => setAppVersion(r.version)).catch(() => {});
+  }, []);
 
   return (
     <div className="app">
       <header>
         <h1>Proxy Nostr Relay</h1>
+        {appVersion != null && (
+          <span className="app-version" title="Application version">v{appVersion}</span>
+        )}
       </header>
       <nav className="tabs">
         <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>

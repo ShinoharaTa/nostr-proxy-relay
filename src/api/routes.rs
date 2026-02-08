@@ -30,6 +30,7 @@ pub fn router(pool: SqlitePool, relay_pool: Arc<RelayPool>) -> Router {
         .route("/stats", get(get_stats))
         .route("/stats/timeseries", get(get_stats_timeseries))
         .route("/relay-info", get(get_relay_info).put(put_relay_info))
+        .route("/app-version", get(get_app_version))
         .route("/simple-ban-rules", get(list_simple_ban_rules).post(create_simple_ban_rule))
         .route("/simple-ban-rules/:id", put(update_simple_ban_rule).delete(delete_simple_ban_rule))
         .with_state(pool.clone())
@@ -40,6 +41,17 @@ pub fn router(pool: SqlitePool, relay_pool: Arc<RelayPool>) -> Router {
 async fn get_relay_status(Extension(relay_pool): Extension<Arc<RelayPool>>) -> Json<serde_json::Value> {
     let relays = relay_pool.status_snapshot().await;
     Json(serde_json::json!({ "relays": relays }))
+}
+
+#[derive(Serialize)]
+struct AppVersionResponse {
+    version: &'static str,
+}
+
+async fn get_app_version() -> Json<AppVersionResponse> {
+    Json(AppVersionResponse {
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 #[derive(Debug, serde::Deserialize)]
