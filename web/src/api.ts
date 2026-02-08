@@ -93,6 +93,7 @@ export const api = {
     if (params?.to) sp.set('to', params.to);
     return get<ConnectionLog[]>(`/connection-logs?${sp}`);
   },
+  getAppVersion: () => get<{ version: string }>('/app-version'),
   getEventRejectionLogs: (params?: { limit?: number; offset?: number; npub?: string; kind?: number; reason?: string; from?: string; to?: string }) => {
     const sp = new URLSearchParams();
     sp.set('limit', String(params?.limit ?? 100));
