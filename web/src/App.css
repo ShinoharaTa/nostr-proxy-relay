@@ -882,3 +882,178 @@ input[type="radio"] {
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+/* ========================================
+   Relay Status Bar (Uptime Kuma style)
+   ======================================== */
+.relay-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+}
+
+.relay-status-bar-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.relay-status-bar-blocks {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.relay-status-block {
+  width: 6px;
+  height: 18px;
+  border-radius: 2px;
+  transition: opacity 0.15s;
+  cursor: default;
+}
+
+.relay-status-block:hover {
+  opacity: 0.8;
+}
+
+.relay-status-block-up {
+  background: var(--success);
+}
+
+.relay-status-block-down {
+  background: var(--danger);
+}
+
+.relay-status-block-none {
+  background: var(--bg-hover);
+}
+
+/* ========================================
+   Modal (NIP-11 preview etc.)
+   ======================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.5rem;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal h3 {
+  margin-bottom: 0.5rem;
+}
+
+.nip11-json {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1rem;
+  font-family: 'Roboto Mono', 'SF Mono', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ========================================
+   Logs Filter Bar
+   ======================================== */
+.logs-filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+
+.logs-filter-bar input {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 12px;
+  min-width: 120px;
+  transition: border-color 0.15s;
+}
+
+.logs-filter-bar input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ========================================
+   Stats Chart
+   ======================================== */
+.stats-chart-container {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1rem;
+  height: 280px;
+}
+
+.stats-chart-wrapper {
+  width: 100%;
+}
+
+/* ========================================
+   Button: Warning
+   ======================================== */
+.btn-warning {
+  background: var(--warning);
+  color: #111;
+}
+
+.btn-warning:hover {
+  background: #e6c200;
+  color: #111;
+}
+
+/* ========================================
+   Select element styling
+   ======================================== */
+.form-group select {
+  padding: 0.625rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: border-color 0.15s;
+  cursor: pointer;
+}
+
+.form-group select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ========================================
+   Toggle inside table cells
+   ======================================== */
+td .toggle {
+  display: inline-block;
+}
