@@ -2,6 +2,9 @@ use std::process::Command;
 use std::path::Path;
 
 fn main() {
+    // web/dist の変更を検知して再ビルドをトリガーする
+    println!("cargo:rerun-if-changed=web/dist");
+
     // Only build frontend if web/dist doesn't exist
     let dist_path = Path::new("web/dist");
     
