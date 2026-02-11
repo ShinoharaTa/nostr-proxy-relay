@@ -1,0 +1,1 @@
+{"name":"Proxy Nostr Relay","short_name":"NostrRelay","description":"Nostr Proxy Relay Admin Panel","start_url":"/config/","display":"standalone","background_color":"#111217","theme_color":"#1a1d23","lang":"en","scope":"/config/","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

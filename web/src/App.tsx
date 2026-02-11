@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import './App.css'
 import { api } from './api'
-import type { Tab } from './types'
 import {
   DashboardSection,
   RelaysSection,
@@ -15,13 +15,30 @@ import {
   MetricsSettingsSection,
 } from './components'
 
+interface TabDef {
+  path: string
+  label: string
+}
+
+const tabs: TabDef[] = [
+  { path: '/', label: 'Dashboard' },
+  { path: '/relays', label: 'Relay Settings' },
+  { path: '/relay-info', label: 'NIP-11 Info' },
+  { path: '/safelist', label: 'Npub Management' },
+  { path: '/ip', label: 'IP Access Control' },
+  { path: '/kind', label: 'Kind Blacklist' },
+  { path: '/filters', label: 'Filter Rules' },
+  { path: '/simple-ban', label: 'Simple BAN' },
+  { path: '/logs', label: 'Event Logs' },
+  { path: '/metrics', label: 'Metrics' },
+]
+
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getAppVersion().then((r: { version: string }) => setAppVersion(r.version)).catch(() => {});
-  }, []);
+    api.getAppVersion().then((r: { version: string }) => setAppVersion(r.version)).catch(() => {})
+  }, [])
 
   return (
     <div className="app">
@@ -32,49 +49,32 @@ function App() {
         )}
       </header>
       <nav className="tabs">
-        <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
-          Dashboard
-        </button>
-        <button className={activeTab === 'relays' ? 'active' : ''} onClick={() => setActiveTab('relays')}>
-          Relay Settings
-        </button>
-        <button className={activeTab === 'relay-info' ? 'active' : ''} onClick={() => setActiveTab('relay-info')}>
-          NIP-11 Info
-        </button>
-        <button className={activeTab === 'safelist' ? 'active' : ''} onClick={() => setActiveTab('safelist')}>
-          Npub Management
-        </button>
-        <button className={activeTab === 'ip' ? 'active' : ''} onClick={() => setActiveTab('ip')}>
-          IP Access Control
-        </button>
-        <button className={activeTab === 'kind' ? 'active' : ''} onClick={() => setActiveTab('kind')}>
-          Kind Blacklist
-        </button>
-        <button className={activeTab === 'filters' ? 'active' : ''} onClick={() => setActiveTab('filters')}>
-          Filter Rules
-        </button>
-        <button className={activeTab === 'simple-ban' ? 'active' : ''} onClick={() => setActiveTab('simple-ban')}>
-          Simple BAN
-        </button>
-        <button className={activeTab === 'logs' ? 'active' : ''} onClick={() => setActiveTab('logs')}>
-          Event Logs
-        </button>
-        <button className={activeTab === 'metrics' ? 'active' : ''} onClick={() => setActiveTab('metrics')}>
-          Metrics
-        </button>
+        {tabs.map(tab => (
+          <NavLink
+            key={tab.path}
+            to={tab.path}
+            end={tab.path === '/'}
+            className={({ isActive }) => isActive ? 'active' : ''}
+          >
+            {tab.label}
+          </NavLink>
+        ))}
       </nav>
       <main className="main-container">
         <div className="container-fluid">
-          {activeTab === 'dashboard' && <DashboardSection />}
-          {activeTab === 'relays' && <RelaysSection />}
-          {activeTab === 'relay-info' && <RelayInfoSection />}
-          {activeTab === 'safelist' && <SafelistSection />}
-          {activeTab === 'ip' && <IpSection />}
-          {activeTab === 'kind' && <KindBlacklistSection />}
-          {activeTab === 'filters' && <FiltersSection />}
-          {activeTab === 'simple-ban' && <SimpleBanSection />}
-          {activeTab === 'logs' && <LogsSection />}
-          {activeTab === 'metrics' && <MetricsSettingsSection />}
+          <Routes>
+            <Route path="/" element={<DashboardSection />} />
+            <Route path="/relays" element={<RelaysSection />} />
+            <Route path="/relay-info" element={<RelayInfoSection />} />
+            <Route path="/safelist" element={<SafelistSection />} />
+            <Route path="/ip" element={<IpSection />} />
+            <Route path="/kind" element={<KindBlacklistSection />} />
+            <Route path="/filters" element={<FiltersSection />} />
+            <Route path="/simple-ban" element={<SimpleBanSection />} />
+            <Route path="/logs" element={<LogsSection />} />
+            <Route path="/metrics" element={<MetricsSettingsSection />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </div>
       </main>
     </div>

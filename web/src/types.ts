@@ -95,6 +95,7 @@ export interface RelayStatusPoint {
 export interface RelayStatusItem {
   url: string;
   status: string;
+  enabled: boolean;
   uptime_history: RelayStatusPoint[];
   last_error: string | null;
   connected_since: string | null;

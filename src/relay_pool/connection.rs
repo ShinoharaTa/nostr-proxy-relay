@@ -82,6 +82,7 @@ impl RelayConnection {
                         let mut last_activity = std::time::Instant::now();
                         let mut ping_interval = tokio::time::interval(Duration::from_secs(PING_INTERVAL_SECS));
                         ping_interval.tick().await; // skip immediate first tick
+                        let mut last_status_record = std::time::Instant::now();
                         while !connection_dropped {
                             tokio::select! {
                                 Some(text) = send_rx.recv() => {
@@ -120,6 +121,11 @@ impl RelayConnection {
                                     } else if ws_tx.send(TungMessage::Ping(vec![])).await.is_err() {
                                         tracing::warn!(url = %url, "Failed to send Ping to relay");
                                         connection_dropped = true;
+                                    }
+                                    // Record "up" status periodically (every ~60s) for status history bar
+                                    if !connection_dropped && last_status_record.elapsed() >= Duration::from_secs(60) {
+                                        status_history.record("up", None);
+                                        last_status_record = std::time::Instant::now();
                                     }
                                 }
                             }

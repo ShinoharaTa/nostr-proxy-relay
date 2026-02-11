@@ -138,15 +138,28 @@ export function RelaysSection() {
                   <td>
                     <div>
                       {relay.enabled ? (
-                        <span className="badge badge-success">ACTIVE</span>
+                        statusItem?.status === 'connected' ? (
+                          <span className="badge badge-success">CONNECTED</span>
+                        ) : statusItem?.status === 'connecting' ? (
+                          <span className="badge badge-warning">CONNECTING</span>
+                        ) : statusItem?.status === 'disconnected' ? (
+                          <span className="badge badge-danger">DISCONNECTED</span>
+                        ) : (
+                          <span className="badge badge-success">ACTIVE</span>
+                        )
                       ) : (
                         <span className="badge badge-secondary">DISABLED</span>
                       )}
                     </div>
-                    {statusItem != null && (
+                    {statusItem != null && statusItem.uptime_history.length > 0 && (
                       <RelayStatusBar
                         uptimeHistory={statusItem.uptime_history}
                       />
+                    )}
+                    {statusItem?.last_error != null && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.25rem' }}>
+                        {statusItem.last_error}
+                      </div>
                     )}
                   </td>
                   <td>
