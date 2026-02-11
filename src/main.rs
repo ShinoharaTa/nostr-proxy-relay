@@ -190,33 +190,62 @@ async fn main() -> anyhow::Result<()> {
 
     // Serve React admin UI from embedded assets
     // For SPA: serve static files if they exist, otherwise serve index.html
-    let index_html = Asset::get("index.html")
-        .map(|content| String::from_utf8_lossy(&content.data).to_string())
-        .unwrap_or_else(|| "<html><body>Admin UI not found. Please build the web app.</body></html>".to_string());
-    
-    // Serve static files from embedded assets
     let static_dir = tower::service_fn({
-        let index_html = index_html.clone();
         move |req: axum::http::Request<axum::body::Body>| {
             let path = req.uri().path().to_string();
-            let index_html = index_html.clone();
             async move {
                 let path = path.trim_start_matches("/config").trim_start_matches('/');
                 let path = if path.is_empty() { "index.html" } else { path };
                 
+                // index.html is always read fresh and never browser-cached.
+                // Hashed assets (JS/CSS) can be cached long-term.
+                if path == "index.html" {
+                    let html = Asset::get("index.html")
+                        .map(|c| String::from_utf8_lossy(&c.data).to_string())
+                        .unwrap_or_else(|| "<html><body>Admin UI not found.</body></html>".to_string());
+                    return Ok::<_, std::convert::Infallible>(
+                        axum::response::Response::builder()
+                            .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                            .header(axum::http::header::CACHE_CONTROL, "no-cache")
+                            .body(axum::body::Body::from(html))
+                            .unwrap()
+                    );
+                }
+
                 match Asset::get(path) {
                     Some(content) => {
                         let mime = mime_guess::from_path(path).first_or_octet_stream();
+                        let mut builder = axum::response::Response::builder()
+                            .header(axum::http::header::CONTENT_TYPE, mime.as_ref());
+                        // Hashed assets get long-term cache; others get no-cache
+                        if path.starts_with("assets/") {
+                            builder = builder.header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable");
+                        }
                         Ok::<_, std::convert::Infallible>(
-                            axum::response::Response::builder()
-                                .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
-                                .body(axum::body::Body::from(content.data))
-                                .unwrap()
+                            builder.body(axum::body::Body::from(content.data)).unwrap()
                         )
                     }
                     None => {
-                        // Fallback to index.html for SPA routing
-                        Ok::<_, std::convert::Infallible>(Html(index_html).into_response())
+                        // SPA fallback: return index.html for page routes only.
+                        // Static assets (paths with file extensions) get 404 instead.
+                        let has_extension = path.rsplit('/').next().map_or(false, |s| s.contains('.'));
+                        if has_extension {
+                            Ok::<_, std::convert::Infallible>(
+                                axum::http::StatusCode::NOT_FOUND.into_response()
+                            )
+                        } else {
+                            // Read index.html fresh (not cached) so it stays in sync with assets
+                            let html = Asset::get("index.html")
+                                .map(|c| String::from_utf8_lossy(&c.data).to_string())
+                                .unwrap_or_else(|| "<html><body>Admin UI not found.</body></html>".to_string());
+                            Ok::<_, std::convert::Infallible>(
+                                axum::response::Response::builder()
+                                    .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                                    .header(axum::http::header::CACHE_CONTROL, "no-cache")
+                                    .body(axum::body::Body::from(html))
+                                    .unwrap()
+                            )
+                        }
                     }
                 }
             }

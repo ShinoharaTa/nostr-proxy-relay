@@ -91,7 +91,7 @@ header h1::before {
   width: 100%;
 }
 
-.tabs button {
+.tabs a {
   padding: 0.875rem 1.25rem;
   background: transparent;
   border: none;
@@ -103,14 +103,15 @@ header h1::before {
   transition: all 0.15s ease;
   white-space: nowrap;
   position: relative;
+  text-decoration: none;
 }
 
-.tabs button:hover {
+.tabs a:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
 }
 
-.tabs button.active {
+.tabs a.active {
   color: var(--orange);
   border-bottom-color: var(--orange);
 }

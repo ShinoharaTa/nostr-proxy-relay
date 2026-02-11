@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Nostr Proxy Relay Shield Logo">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5794f2"/>
+      <stop offset="100%" stop-color="#3871dc"/>
+    </linearGradient>
+    <linearGradient id="innerGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8ab8ff"/>
+      <stop offset="100%" stop-color="#5794f2"/>
+    </linearGradient>
+  </defs>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Shield outline -->
+    <path
+      d="M256 60
+         C330 60 392 100 420 118
+         V250
+         C420 345 348 410 256 452
+         C164 410 92 345 92 250
+         V118
+         C120 100 182 60 256 60 Z"
+      stroke="url(#shieldGrad)"
+      stroke-width="28"
+    />
+
+    <!-- Inner guard contour -->
+    <path
+      d="M256 92
+         C318 92 368 122 392 138
+         V246
+         C392 322 335 376 256 412
+         C177 376 120 322 120 246
+         V138
+         C144 122 194 92 256 92 Z"
+      stroke="url(#innerGrad)"
+      stroke-width="16"
+      opacity="0.35"
+    />
+
+    <!-- Stylized routes -->
+    <path d="M150 210 C170 242 195 265 222 282" stroke="#5794f2" stroke-width="20"/>
+    <path d="M362 210 C342 242 317 265 290 282" stroke="#5794f2" stroke-width="20"/>
+    <path d="M256 252 L256 350" stroke="#8ab8ff" stroke-width="22"/>
+
+    <!-- Lower arc "bundling" -->
+    <path d="M192 298 C220 318 241 326 256 326 C271 326 292 318 320 298" stroke="#5794f2" stroke-width="18"/>
+  </g>
+
+  <!-- Nodes -->
+  <g>
+    <circle cx="256" cy="240" r="28" fill="#ff9830"/>
+    <circle cx="168" cy="230" r="22" fill="#5794f2"/>
+    <circle cx="344" cy="230" r="22" fill="#5794f2"/>
+    <circle cx="256" cy="386" r="30" fill="#73bf69"/>
+  </g>
+</svg>

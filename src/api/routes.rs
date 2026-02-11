@@ -117,7 +117,29 @@ pub struct PutRelaysBody {
 }
 
 async fn put_relays(State(pool): State<SqlitePool>, Json(body): Json<PutRelaysBody>) -> Json<()> {
-    // Simple approach: upsert by url.
+    // Collect URLs from the request to determine which relays to keep
+    let submitted_urls: Vec<&str> = body.relays.iter().map(|r| r.url.as_str()).collect();
+
+    // Delete relays not in the submitted list
+    if submitted_urls.is_empty() {
+        let _ = sqlx::query("DELETE FROM relay_config")
+            .execute(&pool)
+            .await;
+    } else {
+        // Build placeholders for IN clause
+        let placeholders: Vec<String> = (0..submitted_urls.len()).map(|_| "?".to_string()).collect();
+        let query_str = format!(
+            "DELETE FROM relay_config WHERE url NOT IN ({})",
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query(&query_str);
+        for url in &submitted_urls {
+            query = query.bind(url);
+        }
+        let _ = query.execute(&pool).await;
+    }
+
+    // Upsert remaining relays
     for r in body.relays {
         let enabled = if r.enabled { 1i64 } else { 0i64 };
         let _ = sqlx::query(

@@ -119,27 +119,50 @@ impl RelayPool {
         conns.get(url).map(|h| h.conn.recv_broadcast_tx.subscribe())
     }
 
-    /// Snapshot of all relay statuses for the API.
+    /// Snapshot of all relay statuses for the API (includes disabled relays from DB).
     pub async fn status_snapshot(&self) -> Vec<RelayStatusSnapshot> {
+        // Fetch all relays from DB (enabled and disabled)
+        let all_relays: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT url, enabled FROM relay_config ORDER BY id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+
         let conns = self.connections.read().await;
-        let mut out = Vec::with_capacity(conns.len());
-        for (url, h) in conns.iter() {
-            let state = *h.conn.state.read().unwrap();
-            let status = match state {
-                connection::ConnectionState::Connected => "connected",
-                connection::ConnectionState::Connecting => "connecting",
-                connection::ConnectionState::Disconnected => "disconnected",
-            };
-            let uptime_history = h.conn.status_history.snapshot();
-            let last_error = h.conn.last_error.read().unwrap().clone();
-            let connected_since = h.conn.connected_since.read().unwrap().map(|dt| dt.to_rfc3339());
-            out.push(RelayStatusSnapshot {
-                url: url.clone(),
-                status: status.to_string(),
-                uptime_history,
-                last_error,
-                connected_since,
-            });
+        let mut out = Vec::with_capacity(all_relays.len());
+
+        for (url, enabled) in &all_relays {
+            if let Some(h) = conns.get(url) {
+                // Active connection exists in pool
+                let state = *h.conn.state.read().unwrap();
+                let status = match state {
+                    connection::ConnectionState::Connected => "connected",
+                    connection::ConnectionState::Connecting => "connecting",
+                    connection::ConnectionState::Disconnected => "disconnected",
+                };
+                let uptime_history = h.conn.status_history.snapshot();
+                let last_error = h.conn.last_error.read().unwrap().clone();
+                let connected_since = h.conn.connected_since.read().unwrap().map(|dt| dt.to_rfc3339());
+                out.push(RelayStatusSnapshot {
+                    url: url.clone(),
+                    status: status.to_string(),
+                    enabled: *enabled != 0,
+                    uptime_history,
+                    last_error,
+                    connected_since,
+                });
+            } else {
+                // Not in pool (disabled or not yet synced)
+                out.push(RelayStatusSnapshot {
+                    url: url.clone(),
+                    status: "disabled".to_string(),
+                    enabled: *enabled != 0,
+                    uptime_history: vec![],
+                    last_error: None,
+                    connected_since: None,
+                });
+            }
         }
         out
     }
@@ -149,6 +172,7 @@ impl RelayPool {
 pub struct RelayStatusSnapshot {
     pub url: String,
     pub status: String,
+    pub enabled: bool,
     pub uptime_history: Vec<StatusPoint>,
     pub last_error: Option<String>,
     pub connected_since: Option<String>,
