@@ -10,6 +10,10 @@ use tokio_tungstenite::connect_async;
 
 const RECONNECT_BACKOFF_MIN_MS: u64 = 2000;
 const RECONNECT_BACKOFF_MAX_MS: u64 = 60000;
+/// Ping interval for keep-alive (seconds)
+const PING_INTERVAL_SECS: u64 = 30;
+/// Timeout - consider connection dead if no message received within this period (seconds)
+const RELAY_TIMEOUT_SECS: u64 = 90;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ConnectionState {
@@ -75,6 +79,9 @@ impl RelayConnection {
                         tracing::info!(url = %url, "Relay connected");
                         let (mut ws_tx, mut ws_rx) = ws.split();
                         let mut connection_dropped = false;
+                        let mut last_activity = std::time::Instant::now();
+                        let mut ping_interval = tokio::time::interval(Duration::from_secs(PING_INTERVAL_SECS));
+                        ping_interval.tick().await; // skip immediate first tick
                         while !connection_dropped {
                             tokio::select! {
                                 Some(text) = send_rx.recv() => {
@@ -85,12 +92,34 @@ impl RelayConnection {
                                 msg = ws_rx.next() => {
                                     match msg {
                                         Some(Ok(TungMessage::Text(text))) => {
+                                            last_activity = std::time::Instant::now();
                                             let _ = recv_broadcast_tx.send(text);
+                                        }
+                                        Some(Ok(TungMessage::Ping(p))) => {
+                                            last_activity = std::time::Instant::now();
+                                            // Reply with Pong
+                                            if ws_tx.send(TungMessage::Pong(p)).await.is_err() {
+                                                connection_dropped = true;
+                                            }
+                                        }
+                                        Some(Ok(TungMessage::Pong(_))) => {
+                                            last_activity = std::time::Instant::now();
                                         }
                                         Some(Ok(TungMessage::Close(_))) | Some(Err(_)) => {
                                             connection_dropped = true;
                                         }
                                         _ => {}
+                                    }
+                                }
+                                _ = ping_interval.tick() => {
+                                    // Check relay timeout
+                                    let elapsed = last_activity.elapsed();
+                                    if elapsed > Duration::from_secs(RELAY_TIMEOUT_SECS) {
+                                        tracing::warn!(url = %url, timeout_secs = RELAY_TIMEOUT_SECS, "Relay connection timed out");
+                                        connection_dropped = true;
+                                    } else if ws_tx.send(TungMessage::Ping(vec![])).await.is_err() {
+                                        tracing::warn!(url = %url, "Failed to send Ping to relay");
+                                        connection_dropped = true;
                                     }
                                 }
                             }

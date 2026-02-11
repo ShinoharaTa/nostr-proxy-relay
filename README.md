@@ -46,6 +46,31 @@ For more details, please refer to the [Persistence Guide](docs/persistence.md).
 - **Filter Query Language (DSL)**: Create custom rules in a format like `kind == 1 AND content matches ".*NG.*"`.
 - **Web Admin UI**: Real-time statistics confirmation and configuration changes from the browser.
 - **Access Control**: IP-based BAN and npub-based safelist management.
+- **WebSocket Keep-Alive & Auto-Reconnect**: Ping/Pong based connection health monitoring with automatic backend relay reconnection and subscription recovery.
+
+## WebSocket Connection Stability
+
+The proxy includes built-in mechanisms for WebSocket connection stability based on [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455) Ping/Pong control frames.
+
+### Client-side Keep-Alive
+- The proxy sends a WebSocket `Ping` to each connected client every **30 seconds**.
+- If no message (including `Pong` responses) is received from a client within **120 seconds**, the connection is considered dead and is closed.
+- This ensures stale sessions are cleaned up and `connection_logs.disconnected_at` is updated reliably.
+
+### Backend Relay Keep-Alive
+- The proxy sends a WebSocket `Ping` to the backend relay every **30 seconds**.
+- If no message is received from the backend relay within **90 seconds**, the connection is considered timed out.
+- On backend disconnect or timeout, the proxy automatically reconnects after a short delay.
+
+### Subscription Recovery (REQ Re-send)
+- The proxy caches all active `REQ` subscriptions (keyed by `subscription_id`) per [NIP-01](https://nips.nostr.com/1).
+- When a client sends `CLOSE`, the corresponding subscription is removed from the cache.
+- After a successful backend reconnection, all cached `REQ` messages are automatically re-sent to restore subscriptions.
+- This prevents timeline updates from stopping after a backend relay interruption.
+
+### Relay Pool Heartbeat
+- Persistent relay connections in the relay pool also send periodic `Ping` frames and monitor responses.
+- Timeout detection feeds into the existing auto-reconnect loop with exponential backoff.
 
 ## Detailed Documentation
 
