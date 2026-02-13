@@ -18,6 +18,9 @@ cargo install proxy-nostr-relay
 ```bash
 export ADMIN_USER=admin
 export ADMIN_PASS=your-password
+# EOSE を受けたら one-shot 扱いで自動 CLOSE する kind（カンマ区切り）
+# 例: kind 0 のみ one-shot にする場合
+export EOSE_AUTOCLOSE_KINDS=0
 proxy-nostr-relay
 ```
 
@@ -44,6 +47,7 @@ proxy-nostr-relay
 - **Filter Query Language (DSL)**: `kind == 1 AND content matches ".*NG.*"` のような形式で独自のルールを作成可能。
 - **Web 管理 UI**: ブラウザからリアルタイムに統計確認や設定変更が可能。
 - **アクセス制御**: IP 単位の BAN や、npub 単位のセーフリスト管理。
+- **One-shot REQ の自動クローズ**: `EOSE_AUTOCLOSE_KINDS` で指定した kind の REQ は、`EOSE` 受信後にプロキシがバックエンドへ `CLOSE` を送信（既定値: `0`）。
 
 ## 詳細ドキュメント
 

@@ -10,6 +10,12 @@ use crate::filter::engine::FilterEngine;
 use crate::nostr::event::Event;
 use crate::nostr::message::{parse_client_msg, ClientMsg};
 
+#[derive(Debug, Clone)]
+struct ReqCacheEntry {
+    req_text: String,
+    eose_autoclose: bool,
+}
+
 /// Ping interval for keep-alive (seconds)
 const PING_INTERVAL_SECS: u64 = 30;
 /// Client timeout - close if no message received within this period (seconds)
@@ -82,7 +88,8 @@ pub async fn proxy_ws_with_pool(
     let mut last_client_activity = Instant::now();
 
     // REQ cache for resubscription after backend reconnect (sub_id -> raw JSON text)
-    let mut req_cache: HashMap<String, String> = HashMap::new();
+    let mut req_cache: HashMap<String, ReqCacheEntry> = HashMap::new();
+    let eose_autoclose_kinds = parse_eose_autoclose_kinds_from_env();
 
     // Backend reconnection loop
     let mut is_first_connect = true;
@@ -113,10 +120,10 @@ pub async fn proxy_ws_with_pool(
         // Resend cached REQs after reconnect
         if !req_cache.is_empty() {
             tracing::info!(count = req_cache.len(), "Resending cached REQs after backend reconnect");
-            for (sub_id, req_text) in &req_cache {
+            for (sub_id, entry) in &req_cache {
                 tracing::info!(sub_id = %sub_id, "Resending REQ");
                 if backend_tx
-                    .send(TungMessage::Text(req_text.clone()))
+                    .send(TungMessage::Text(entry.req_text.clone()))
                     .await
                     .is_err()
                 {
@@ -177,7 +184,15 @@ pub async fn proxy_ws_with_pool(
                                 }
                                 Ok(ClientMsg::Req { ref sub_id, .. }) => {
                                     // Cache REQ for resubscription after backend reconnect
-                                    req_cache.insert(sub_id.clone(), text.clone());
+                                    let eose_autoclose =
+                                        should_autoclose_on_eose(&text, &eose_autoclose_kinds);
+                                    req_cache.insert(
+                                        sub_id.clone(),
+                                        ReqCacheEntry {
+                                            req_text: text.clone(),
+                                            eose_autoclose,
+                                        },
+                                    );
                                 }
                                 Ok(ClientMsg::Close { ref sub_id }) => {
                                     req_cache.remove(sub_id);
@@ -243,27 +258,50 @@ pub async fn proxy_ws_with_pool(
                                     }
                                 }
                             }
-                            // Check message type for stats
+                            // Check message type for stats and subscription cache lifecycle.
                             if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&text) {
-                                if arr.first().and_then(|v| v.as_str()) == Some("OK") {
-                                    if let Some(_event_id) = arr.get(1).and_then(|v| v.as_str()) {
-                                        let accepted = arr.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
-                                        if let (Some(pool), Some(log_id)) = (&pool, connection_log_id) {
-                                            if accepted {
-                                                let _ = sqlx::query(
-                                                    "UPDATE connection_logs SET event_count = event_count + 1 WHERE id = ?"
-                                                )
-                                                .bind(log_id)
-                                                .execute(pool)
-                                                .await;
-                                            } else {
-                                                let _ = sqlx::query(
-                                                    "UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?"
-                                                )
-                                                .bind(log_id)
-                                                .execute(pool)
-                                                .await;
+                                if let Some(msg_type) = arr.first().and_then(|v| v.as_str()) {
+                                    if msg_type == "OK" {
+                                        if let Some(_event_id) = arr.get(1).and_then(|v| v.as_str()) {
+                                            let accepted = arr.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
+                                            if let (Some(pool), Some(log_id)) = (&pool, connection_log_id) {
+                                                if accepted {
+                                                    let _ = sqlx::query(
+                                                        "UPDATE connection_logs SET event_count = event_count + 1 WHERE id = ?"
+                                                    )
+                                                    .bind(log_id)
+                                                    .execute(pool)
+                                                    .await;
+                                                } else {
+                                                    let _ = sqlx::query(
+                                                        "UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?"
+                                                    )
+                                                    .bind(log_id)
+                                                    .execute(pool)
+                                                    .await;
+                                                }
                                             }
+                                        }
+                                    } else if msg_type == "EOSE" {
+                                        if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
+                                            let should_close = req_cache
+                                                .get(sub_id)
+                                                .map(|entry| entry.eose_autoclose)
+                                                .unwrap_or(false);
+                                            if should_close {
+                                                req_cache.remove(sub_id);
+                                                let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
+                                                if backend_tx.send(TungMessage::Text(close_msg)).await.is_err() {
+                                                    backend_disconnected = true;
+                                                    break;
+                                                }
+                                                tracing::info!(sub_id = %sub_id, "Sent CLOSE after EOSE for one-shot subscription");
+                                            }
+                                        }
+                                    } else if msg_type == "CLOSED" {
+                                        if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
+                                            req_cache.remove(sub_id);
+                                            tracing::info!(sub_id = %sub_id, "Removed REQ cache entry after CLOSED");
                                         }
                                     }
                                 }
@@ -431,4 +469,46 @@ async fn is_ip_banned(pool: &SqlitePool, ip: &str) -> anyhow::Result<bool> {
             .fetch_optional(pool)
             .await?;
     Ok(row.map(|(banned,)| banned == 1).unwrap_or(false))
+}
+
+fn parse_eose_autoclose_kinds_from_env() -> std::collections::HashSet<i64> {
+    let raw = std::env::var("EOSE_AUTOCLOSE_KINDS").unwrap_or_else(|_| "0".to_string());
+    raw.split(',')
+        .filter_map(|s| s.trim().parse::<i64>().ok())
+        .collect()
+}
+
+fn should_autoclose_on_eose(req_text: &str, target_kinds: &std::collections::HashSet<i64>) -> bool {
+    if target_kinds.is_empty() {
+        return false;
+    }
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(req_text) else {
+        return false;
+    };
+    let Some(arr) = v.as_array() else {
+        return false;
+    };
+    if arr.first().and_then(|x| x.as_str()) != Some("REQ") {
+        return false;
+    }
+    let filter_values: Vec<&serde_json::Value> = arr.iter().skip(2).collect();
+    if filter_values.is_empty() {
+        return false;
+    }
+    filter_values.into_iter().all(|filter| {
+        let Some(obj) = filter.as_object() else {
+            return false;
+        };
+        let Some(kinds_val) = obj.get("kinds") else {
+            return false;
+        };
+        let Some(kinds) = kinds_val.as_array() else {
+            return false;
+        };
+        !kinds.is_empty()
+            && kinds
+                .iter()
+                .filter_map(|k| k.as_i64())
+                .all(|k| target_kinds.contains(&k))
+    })
 }

@@ -20,6 +20,9 @@ Set the username and password for the admin UI and start the server.
 ```bash
 export ADMIN_USER=admin
 export ADMIN_PASS=your-password
+# kinds to auto-close as one-shot after EOSE (comma-separated)
+# Example: only kind 0 is treated as one-shot
+export EOSE_AUTOCLOSE_KINDS=0
 proxy-nostr-relay
 ```
 
@@ -65,6 +68,8 @@ The proxy includes built-in mechanisms for WebSocket connection stability based 
 ### Subscription Recovery (REQ Re-send)
 - The proxy caches all active `REQ` subscriptions (keyed by `subscription_id`) per [NIP-01](https://nips.nostr.com/1).
 - When a client sends `CLOSE`, the corresponding subscription is removed from the cache.
+- When a relay sends `CLOSED`, the corresponding subscription is removed from the cache.
+- For subscriptions whose filters contain only kinds configured in `EOSE_AUTOCLOSE_KINDS` (default: `0`), the proxy sends `CLOSE` to the backend relay right after forwarding `EOSE` and removes them from cache.
 - After a successful backend reconnection, all cached `REQ` messages are automatically re-sent to restore subscriptions.
 - This prevents timeline updates from stopping after a backend relay interruption.
 
