@@ -49,6 +49,18 @@ proxy-nostr-relay
 - **アクセス制御**: IP 単位の BAN や、npub 単位のセーフリスト管理。
 - **One-shot REQ の自動クローズ**: `EOSE_AUTOCLOSE_KINDS` で指定した kind の REQ は、`EOSE` 受信後にプロキシがバックエンドへ `CLOSE` を送信（既定値: `0`）。
 
+## 実行ログ
+
+- ログは標準出力とファイルの両方へ出力されます。
+- ファイルログは既定で `logs/` 配下に 1 時間ごとにローテーションされます。
+- 72 時間（3日）を超えたログファイルは自動削除されます。
+- 出力先ディレクトリは `LOG_DIR` で変更できます。
+
+```bash
+export LOG_DIR=logs
+proxy-nostr-relay
+```
+
 ## 詳細ドキュメント
 
 - [設定と運用 (systemd/Nginx)](docs/configuration.md)

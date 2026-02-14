@@ -12,6 +12,7 @@ mod metrics;
 use db::{connect, migrate::migrate};
 use anyhow::Context;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_appender::non_blocking::WorkerGuard;
 use axum::{
     extract::{ws::WebSocketUpgrade, ConnectInfo},
     http::header::ACCEPT,
@@ -21,7 +22,9 @@ use axum::{
     response::{Html, IntoResponse, Json},
 };
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use sqlx::SqlitePool;
 use rust_embed::Embed;
 use crate::relay_pool::RelayPool;
@@ -29,6 +32,96 @@ use crate::relay_pool::RelayPool;
 #[derive(Embed)]
 #[folder = "web/dist"]
 struct Asset;
+
+const LOG_FILE_PREFIX: &str = "proxy-nostr-relay.log.";
+const LOG_RETENTION_HOURS: u64 = 72;
+
+fn setup_logging() -> anyhow::Result<WorkerGuard> {
+    let log_dir = std::env::var("LOG_DIR").unwrap_or_else(|_| "logs".to_string());
+    std::fs::create_dir_all(&log_dir)?;
+
+    let file_appender = tracing_appender::rolling::hourly(&log_dir, "proxy-nostr-relay.log");
+    let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(file_writer),
+        )
+        .init();
+
+    spawn_log_cleanup_task(
+        PathBuf::from(log_dir),
+        Duration::from_secs(LOG_RETENTION_HOURS * 60 * 60),
+    );
+
+    Ok(file_guard)
+}
+
+fn spawn_log_cleanup_task(log_dir: PathBuf, retention: Duration) {
+    tokio::spawn(async move {
+        if let Err(e) = cleanup_old_log_files(&log_dir, retention) {
+            tracing::warn!(error = %e, "Failed to clean up old log files");
+        }
+
+        let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+        interval.tick().await; // skip immediate first tick
+        loop {
+            interval.tick().await;
+            if let Err(e) = cleanup_old_log_files(&log_dir, retention) {
+                tracing::warn!(error = %e, "Failed to clean up old log files");
+            }
+        }
+    });
+}
+
+fn cleanup_old_log_files(log_dir: &Path, retention: Duration) -> anyhow::Result<()> {
+    let now = SystemTime::now();
+    for entry in std::fs::read_dir(log_dir)? {
+        let entry = match entry {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to read an entry in log directory");
+                continue;
+            }
+        };
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !file_name.starts_with(LOG_FILE_PREFIX) {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %path.display(), "Failed to read log file metadata");
+                continue;
+            }
+        };
+        let modified = match metadata.modified() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %path.display(), "Failed to read log file modified time");
+                continue;
+            }
+        };
+        let age = match now.duration_since(modified) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if age > retention {
+            match std::fs::remove_file(&path) {
+                Ok(_) => tracing::info!(path = %path.display(), "Removed expired log file"),
+                Err(e) => tracing::warn!(error = %e, path = %path.display(), "Failed to remove expired log file"),
+            }
+        }
+    }
+    Ok(())
+}
 
 /// DBから有効なバックエンドリレーURLを取得
 async fn get_backend_relay_url(pool: &SqlitePool) -> String {
@@ -150,10 +243,7 @@ async fn main() -> anyhow::Result<()> {
     // .envファイルを読み込む（存在しなくてもエラーにならない）
     let _ = dotenvy::dotenv();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let _log_guard = setup_logging()?;
 
     // default: local sqlite file in workspace
     let db_url =

@@ -77,6 +77,18 @@ The proxy includes built-in mechanisms for WebSocket connection stability based 
 - Persistent relay connections in the relay pool also send periodic `Ping` frames and monitor responses.
 - Timeout detection feeds into the existing auto-reconnect loop with exponential backoff.
 
+## Runtime Logs
+
+- Logs are written to both stdout and files.
+- File logs are rotated hourly in `logs/` by default.
+- Files older than 72 hours (3 days) are automatically removed.
+- You can change log output directory with `LOG_DIR`.
+
+```bash
+export LOG_DIR=logs
+proxy-nostr-relay
+```
+
 ## Detailed Documentation
 
 - [Configuration & Operation (systemd/Nginx)](docs/configuration.md)
