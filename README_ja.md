@@ -1,7 +1,12 @@
 # Proxy Nostr Relay
 
-Nostr プロトコル用のプロキシリレーサーバー。
-Bot や不要な投稿を高度なフィルタリングロジックと DSL（Domain Specific Language）で排除します。
+**JP 圏の Nostr 運用者のための「人間が速く判断するための前段フィルタ」プロキシリレー**。
+
+クライアントとバックエンドリレーの間に置き、不要 EVENT を遮断・遅延・観測します。
+GUI で完結する Simple BAN と、運用者向けの DSL を両立させ、
+初心者から熟練運用者まで同じ基盤で細かくフィルタを組めます。
+
+詳しくは [プロダクトビジョン](やりたいこと.md) と [機能仕様](docs/specification_ja.md) を参照してください。
 
 ## クイックスタート
 
@@ -43,11 +48,28 @@ proxy-nostr-relay
 
 ## 主な機能
 
-- **高度な Bot フィルタリング**: Kind 6/7 の重複投稿を自動検知。
-- **Filter Query Language (DSL)**: `kind == 1 AND content matches ".*NG.*"` のような形式で独自のルールを作成可能。
-- **Web 管理 UI**: ブラウザからリアルタイムに統計確認や設定変更が可能。
-- **アクセス制御**: IP 単位の BAN や、npub 単位のセーフリスト管理。
-- **One-shot REQ の自動クローズ**: `EOSE_AUTOCLOSE_KINDS` で指定した kind の REQ は、`EOSE` 受信後にプロキシがバックエンドへ `CLOSE` を送信（既定値: `0`）。
+### モデレーション
+- **POST ポリシー切替**: Allowlist（既定 deny）/ Denylist（既定 allow）をリレー全体で切替可能（開発中）
+- **Simple BAN**: npub / kind / 組合せ / タグ含有を GUI で登録（開発中：エンジン統合）
+- **DSL Filter Rules**: `kind == 1 AND content matches ".*NG.*"` のような SQL ライク構文
+- **Quarantine（時限ミュート）**: 任意の解除日時で一時隔離（開発中）
+- **Hard BAN / Shadow BAN**: 接続拒否と「攻撃者に気付かせない黙殺」の使い分け（開発中）
+- **CIDR 対応 IP BAN**: サブネット遮断対応（開発中）
+
+### 信頼性・観測性
+- **WebSocket Keep-Alive と自動再接続**: Ping/Pong 死活監視と REQ 再購読
+- **マルチバックエンドリレー**: Failover → Fan-out/Fan-in 段階拡張（開発中）
+- **InfluxDB エクスポート**: 接続数・拒否数・リレー死活など
+- **Web 管理 UI**: 統計確認・設定変更・拒否ログ閲覧
+
+### 標準
+- NIP-01 / NIP-11 / NIP-77（自己申告）
+
+## 設計原則
+
+1. 善良な大量投稿者を壊さない（自動制裁はしない）
+2. 判断は人間、ツールは速さに全振り
+3. ログ・設定は運用者の財産として持ち出せる形を保つ
 
 ## 実行ログ
 
@@ -63,11 +85,14 @@ proxy-nostr-relay
 
 ## 詳細ドキュメント
 
-- [設定と運用 (systemd/Nginx)](docs/configuration.md)
-- [データの永続化とバックアップ](docs/persistence.md)
-- [Filter Query Language (DSL) 仕様](docs/filter-query.md)
-- [API リファレンス](docs/api.md)
-- [開発者ガイド](docs/development.md)
+- [プロダクトビジョン](やりたいこと.md)
+- [機能仕様](docs/specification_ja.md)
+- [実装ロードマップ](Todos.md)
+- [設定と運用 (systemd/Nginx)](docs/configuration_ja.md)
+- [データの永続化とバックアップ](docs/persistence_ja.md)
+- [Filter Query Language (DSL) 仕様](docs/filter-query_ja.md)
+- [API リファレンス](docs/api_ja.md)
+- [開発者ガイド](docs/development_ja.md)
 
 ## ライセンス
 MIT OR Apache-2.0

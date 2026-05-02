@@ -1,65 +1,84 @@
 # ドキュメント
 
-Proxy Nostr Relayの詳細な機能説明とセットアップガイドです。
+Proxy Nostr Relay の公開ドキュメント目次です。
+
+## このプロダクトは
+
+> **JP 圏の Nostr 運用者のための「人間が速く判断するための前段フィルタ」プロキシリレー**
+
+クライアントとバックエンドリレーの間に置き、不要 EVENT を遮断・遅延・観測します。
+自動制裁ではなく、運用者が**秒速で判断・対処できる**ためのツールに全振りしています。
+
+詳しくは [機能仕様](specification_ja) を参照してください。
 
 ## 目次
 
-- [Filter Query Language仕様](filter-query) — フィルタルールの記述方法
+- [機能仕様](specification_ja) — 全機能のリファレンス
+- [Filter Query Language 仕様](filter-query) — 高度なフィルタ DSL
+- [API リファレンス](api) — 管理 API
+- [設定と運用](configuration) — systemd / Nginx / 環境変数
+- [データの永続化とバックアップ](persistence) — SQLite ファイル運用
+- [開発者ガイド](development) — ローカル開発と貢献方法
+- [NIP-11 比較表](nip11-comparison) — 他リレー実装との対応比較
+- [NIP-11 推奨設定](nip11-recommendations) — 設定値の推奨
 
 ---
 
 ## 概要
 
-Proxy Nostr Relayは、クライアントとバックエンドリレーの間に配置するプロキシサーバーです。
-
 ```
-クライアント → Proxy Relay → バックエンドリレー
-                    ↓
-              フィルタエンジン
+┌──────────────┐  WebSocket  ┌──────────────────────┐  WebSocket  ┌──────────────────┐
+│  Nostr Client│ ──────────> │  Proxy Nostr Relay   │ ──────────> │ Backend Relay(s) │
+└──────────────┘             │ ┌──────────────────┐ │             └──────────────────┘
+                             │ │ Filter Pipeline  │ │
+                             │ │ POST/REQ ライン  │ │
+                             │ └──────────────────┘ │
+                             └──────────────────────┘
 ```
 
-フィルタエンジンが以下の順序でイベントをチェックし、条件に一致したものをブロックします：
+EVENT は以下の順で評価されます（詳細は [仕様 §6](specification_ja)）：
 
-1. IP BANチェック
-2. Npub BANチェック
-3. Kindブラックリスト
-4. カスタムフィルタルール
-5. Bot検出ルール
+1. **接続層**：IP アクセス制御（Hard BAN / Shadow BAN / Whitelist + CIDR）
+2. **POST 層**：POST ポリシー（Allowlist / Denylist）と per-npub オーバーライド
+3. **Quarantine 層**：時限ミュート（Discord 風の自由解除日時指定）
+4. **コンテンツ層**：Simple BAN（GUI）と DSL Filter Rules
+5. **Bot 検出層**：kind 6/7 重複検出
 
 ---
 
-## 機能一覧
+## 主な機能
 
-### プロキシリレー
-クライアントからの接続を受け付け、バックエンドリレーに中継します。複数のバックエンドリレーを設定可能です。
+### モデレーション
+- **POST ポリシー切替**：Allowlist（デフォルト deny）/ Denylist（デフォルト allow）をリレー全体で切替可能
+- **Simple BAN**：npub / kind / 組合せ / タグ含有を GUI で登録
+- **DSL Filter Rules**：SQL ライク構文で正規表現や複合条件を記述
+- **Quarantine**：任意の解除日時で一時隔離。スコープも選択可（黙殺 / シャドウ / 読み取り専用 / 全拒否）
+- **Hard BAN / Shadow BAN**：明示的な遮断と、攻撃者に気付かせない黙殺の使い分け
+- **CIDR 対応 IP BAN**：botnet や VPN 経由の攻撃に対するサブネット遮断
 
-### Bot検出
-Kind 6（リポスト）やKind 7（リアクション）で、参照先イベントと同じ`created_at`を持つ投稿をBot判定してブロックします。
+### 信頼性
+- **WebSocket Keep-Alive と自動再接続**：Ping/Pong による死活監視と REQ 再購読
+- **マルチバックエンドリレー**：Failover から Fan-out/Fan-in + dedup へ段階拡張（開発中）
+- **One-shot REQ 自動 CLOSE**：プロフィール取得など一回限りの subscription を自動終了
 
-### Filter Query Language
-SQLライクな構文でフィルタ条件を記述できるDSLです。正規表現、タグベースフィルタ、複合条件（AND/OR/NOT）をサポートしています。
+### 観測性
+- **接続ログ・拒否ログ**：IP / npub / kind / reason で検索可能
+- **時系列統計**：POST 数 / 配信数 / 拒否数の時系列、kind 別流量
+- **InfluxDB エクスポート**：受信→再配信レイテンシ含む詳細メトリクス（拡張中）
+- **リレー死活監視**：Uptime Kuma 風の状態履歴 UI
 
-詳細は [Filter Query Language仕様](filter-query) を参照してください。
+### 標準対応
+- **NIP-01**：基本プロトコル
+- **NIP-11**：リレー情報の自己申告
+- **NIP-77**（negentropy）：自己申告のみ
 
-### セーフリスト
-信頼できるnpubを登録し、以下の権限を付与できます：
+## 設計原則
 
-| フラグ | 説明 |
-|--------|------|
-| `post_allowed` (1) | EVENTの投稿を許可 |
-| `filter_bypass` (2) | フィルタをバイパス |
-| 両方 (3) | 上記両方を許可 |
-
-### IPアドレス管理
-IPアドレス単位でBAN/ホワイトリストを設定できます。
-
-### Kindブラックリスト
-特定のKind値またはKind範囲（例: 10000-19999）をブロックできます。
-
-### ログ・統計
-- **接続ログ**: IP、接続時刻、切断時刻、イベント数を記録
-- **拒否ログ**: 拒否されたイベントのID、npub、IP、Kind、理由を記録
-- **統計情報**: 接続数、拒否数、拒否理由別内訳、トップnpub/IPを表示
+1. **善良な大量投稿者を壊さない** — 自動制裁はしない
+2. **判断は人間、ツールは速さに全振り** — 検知の自動化より「BAN を 1 クリック」を磨く
+3. **再エクスポート可能に** — ログや設定は運用者の財産として持ち出せる
+4. **オープンとプライベートの両立** — Allowlist モードで個人専用リレーにも転用可
+5. **GUI と DSL の両刀** — 同じ基盤で初心者と熟練者の両方が居られる
 
 ---
 
@@ -68,3 +87,4 @@ IPアドレス単位でBAN/ホワイトリストを設定できます。
 - [GitHub Repository](https://github.com/ShinoharaTa/nostr-proxy-relay)
 - [Nostr Protocol NIPs](https://github.com/nostr-protocol/nips)
 - [NIP-01: Basic protocol flow](https://github.com/nostr-protocol/nips/blob/master/01.md)
+- [NIP-11: Relay Information Document](https://github.com/nostr-protocol/nips/blob/master/11.md)
