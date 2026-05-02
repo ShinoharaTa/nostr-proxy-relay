@@ -201,8 +201,23 @@ pub struct DryRunResult {
     pub error: Option<String>,
 }
 
+/// CSV または JSON 配列 (`["a","b"]` / `[1,2]`) をどちらも受け付ける。
 fn parse_csv(s: &str) -> Vec<String> {
-    s.split(',')
+    let trimmed = s.trim();
+    if trimmed.starts_with('[') {
+        if let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            return items
+                .into_iter()
+                .filter_map(|v| match v {
+                    serde_json::Value::String(s) => Some(s),
+                    serde_json::Value::Number(n) => Some(n.to_string()),
+                    _ => None,
+                })
+                .collect();
+        }
+    }
+    trimmed
+        .split(',')
         .map(|x| x.trim().to_string())
         .filter(|x| !x.is_empty())
         .collect()

@@ -4,32 +4,39 @@ import './App.css'
 import { api } from './api'
 import {
   DashboardSection,
+  LiveEventsSection,
   RelaysSection,
   RelayInfoSection,
+  PostPolicySection,
   SafelistSection,
   IpSection,
+  QuarantineSection,
   KindBlacklistSection,
   FiltersSection,
-  LogsSection,
   SimpleBanSection,
+  LogsSection,
   MetricsSettingsSection,
 } from './components'
 
 interface TabDef {
   path: string
   label: string
+  group?: string
 }
 
 const tabs: TabDef[] = [
   { path: '/', label: 'Dashboard' },
-  { path: '/relays', label: 'Relay Settings' },
-  { path: '/relay-info', label: 'NIP-11 Info' },
-  { path: '/safelist', label: 'Npub Management' },
-  { path: '/ip', label: 'IP Access Control' },
+  { path: '/live', label: 'Live Events' },
+  { path: '/relays', label: 'Backend Relays' },
+  { path: '/relay-info', label: 'NIP-11' },
+  { path: '/post-policy', label: 'POST Policy' },
+  { path: '/safelist', label: 'Npub' },
+  { path: '/ip', label: 'IP ACL' },
+  { path: '/quarantine', label: 'Quarantine' },
   { path: '/kind', label: 'Kind Blacklist' },
   { path: '/filters', label: 'Filter Rules' },
   { path: '/simple-ban', label: 'Simple BAN' },
-  { path: '/logs', label: 'Event Logs' },
+  { path: '/logs', label: 'Logs' },
   { path: '/metrics', label: 'Metrics' },
 ]
 
@@ -64,10 +71,13 @@ function App() {
         <div className="container-fluid">
           <Routes>
             <Route path="/" element={<DashboardSection />} />
+            <Route path="/live" element={<LiveEventsSection />} />
             <Route path="/relays" element={<RelaysSection />} />
             <Route path="/relay-info" element={<RelayInfoSection />} />
+            <Route path="/post-policy" element={<PostPolicySection />} />
             <Route path="/safelist" element={<SafelistSection />} />
             <Route path="/ip" element={<IpSection />} />
+            <Route path="/quarantine" element={<QuarantineSection />} />
             <Route path="/kind" element={<KindBlacklistSection />} />
             <Route path="/filters" element={<FiltersSection />} />
             <Route path="/simple-ban" element={<SimpleBanSection />} />

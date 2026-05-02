@@ -1070,10 +1070,12 @@ async fn get_stats_timeseries(
 ) -> Json<Vec<StatsTimeseriesBucket>> {
     // 期間: '1h' (60min, 1分粒度), '24h' (1440min, 5分粒度), '1d' (1440min, 60分粒度)
     let (window_min, granularity) = match params.period.as_deref() {
+        Some("15m") => (15, 1),
+        Some("6h") => (6 * 60, 5),
         Some("24h") => (24 * 60, 5),
         Some("1d") => (24 * 60, 60),
         Some("7d") => (7 * 24 * 60, 60),
-        _ => (60, 1),
+        _ => (60, 1), // default = 1h
     };
     let now_min = chrono::Utc::now().timestamp() / 60;
     let from_min = now_min - window_min as i64;

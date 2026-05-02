@@ -1,8 +1,10 @@
+export type IpMode = 'normal' | 'hard_ban' | 'shadow_ban' | 'whitelist';
+
 export interface IpAccessControl {
   id?: number;
   ip_address: string;
-  banned: boolean;
-  whitelisted: boolean;
+  mode: IpMode;
+  is_cidr: boolean;
   memo: string;
 }
 
@@ -28,11 +30,17 @@ export interface FilterRule {
   parsed_json: string;
   enabled: boolean;
   rule_order: number;
+  apply_to_post: boolean;
+  apply_to_backend: boolean;
 }
 
 export interface RelayConfig {
   url: string;
   enabled: boolean;
+  role?: string;
+  weight?: number;
+  read_enabled?: boolean;
+  write_enabled?: boolean;
 }
 
 export interface ConnectionLog {
@@ -52,6 +60,14 @@ export interface EventRejectionLog {
   ip_address?: string;
   kind: number;
   reason: string;
+  created_at: string;
+}
+
+export interface RelayEventLog {
+  id: number;
+  relay_url: string;
+  event_type: string;
+  detail: string;
   created_at: string;
 }
 
@@ -84,7 +100,19 @@ export interface RelayInfo {
   negentropy?: number;
 }
 
-export type Tab = 'dashboard' | 'relays' | 'relay-info' | 'safelist' | 'ip' | 'kind' | 'filters' | 'simple-ban' | 'logs' | 'metrics';
+export type Tab =
+  | 'dashboard'
+  | 'live'
+  | 'relays'
+  | 'relay-info'
+  | 'safelist'
+  | 'ip'
+  | 'quarantine'
+  | 'kind'
+  | 'filters'
+  | 'simple-ban'
+  | 'logs'
+  | 'metrics';
 
 export interface RelayStatusPoint {
   timestamp: string;
@@ -107,8 +135,9 @@ export interface RelayStatusResponse {
 
 export interface StatsTimeseriesBucket {
   time: string;
+  posted: number;
+  delivered: number;
   rejections: number;
-  events: number;
 }
 
 export interface SimpleBanRule {
@@ -119,7 +148,32 @@ export interface SimpleBanRule {
   tag_name: string | null;
   tag_value_pattern: string | null;
   enabled: boolean;
+  apply_to_post: boolean;
+  apply_to_backend: boolean;
   memo: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export interface QuarantineEntry {
+  id: number;
+  npub: string;
+  scope: 'post' | 'req' | 'all';
+  reason: string;
+  created_at: string;
+  expires_at?: string | null;
+  active: boolean;
+}
+
+export interface PostPolicy {
+  policy: 'allowlist' | 'denylist';
+  backend_strategy: string;
+}
+
+export type LiveEvent =
+  | { type: 'event_accepted'; ts: string; kind: number; npub: string; ip?: string }
+  | { type: 'event_rejected'; ts: string; kind: number; npub: string; ip?: string; reason: string }
+  | { type: 'event_delivered'; ts: string; kind: number; npub: string; sub_id: string }
+  | { type: 'event_dropped'; ts: string; kind: number; npub: string; sub_id: string; reason: string }
+  | { type: 'connection_opened'; ts: string; ip: string }
+  | { type: 'connection_closed'; ts: string; ip: string };

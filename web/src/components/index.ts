@@ -9,3 +9,6 @@ export { LogsSection } from './LogsSection';
 export { StatsChart } from './StatsChart';
 export { MetricsSettingsSection } from './MetricsSettingsSection';
 export { SimpleBanSection } from './SimpleBanSection';
+export { PostPolicySection } from './PostPolicySection';
+export { QuarantineSection } from './QuarantineSection';
+export { LiveEventsSection } from './LiveEventsSection';

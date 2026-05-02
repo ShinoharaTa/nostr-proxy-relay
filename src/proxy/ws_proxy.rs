@@ -16,7 +16,7 @@ use crate::event_counter::{Action as CounterAction, EventCounter};
 use crate::event_stream::{LiveEvent, LiveEventBus};
 use crate::filter::engine::FilterEngine;
 use crate::nostr::event::Event;
-use crate::nostr::message::{parse_client_msg, ClientMsg, ParseClientMsgError};
+use crate::nostr::message::{parse_client_msg_with_limits, ClientMsg, ParseClientMsgError, ParseLimits};
 use crate::session_registry::SessionRegistry;
 
 const PING_INTERVAL_SECS: u64 = 30;
@@ -106,6 +106,8 @@ pub async fn proxy_ws_with_ctx(
     let mut req_cache: HashMap<String, ReqCacheEntry> = HashMap::new();
     let mut is_first_connect = true;
     let mut settings_watch = ctx.settings.watch();
+    let parse_limits = load_parse_limits(&ctx.pool).await;
+    let max_subscriptions = load_max_subscriptions(&ctx.pool).await;
 
     'reconnect: loop {
         tracing::info!(backend_url = %backend_url, "Connecting to backend relay");
@@ -162,7 +164,7 @@ pub async fn proxy_ws_with_ctx(
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             last_client_activity = Instant::now();
-                            match parse_client_msg(&text) {
+                            match parse_client_msg_with_limits(&text, &parse_limits) {
                                 Ok(ClientMsg::Event { event }) => {
                                     if !handle_post_event(
                                         &ctx,
@@ -189,6 +191,15 @@ pub async fn proxy_ws_with_ctx(
                                         let _ = client_out_tx.send(Message::Text(serde_json::json!(["EOSE", sub_id]).to_string()));
                                         continue;
                                     }
+                                    // max_subscriptions チェック（既存 sub の上書きは許容）
+                                    if let Some(max) = max_subscriptions {
+                                        if !req_cache.contains_key(sub_id) && req_cache.len() >= max {
+                                            let _ = client_out_tx.send(Message::Text(
+                                                serde_json::json!(["CLOSED", sub_id, "rate-limited: max subscriptions reached"]).to_string()
+                                            ));
+                                            continue;
+                                        }
+                                    }
                                     let kinds = ctx.settings.eose_autoclose_kinds().await;
                                     let eose_autoclose = should_autoclose_on_eose(&text, &kinds);
                                     req_cache.insert(sub_id.clone(), ReqCacheEntry { req_text: text.clone(), eose_autoclose });
@@ -210,6 +221,22 @@ pub async fn proxy_ws_with_ctx(
                                         backend_disconnected = true;
                                         break;
                                     }
+                                }
+                                Err(ParseClientMsgError::TooLong(n, max)) => {
+                                    let notice = serde_json::json!(["NOTICE", format!("message too long: {n} bytes (max {max})")]).to_string();
+                                    let _ = client_out_tx.send(Message::Text(notice));
+                                }
+                                Err(ParseClientMsgError::ContentTooLong(n, max)) => {
+                                    let notice = serde_json::json!(["NOTICE", format!("event content too long: {n} bytes (max {max})")]).to_string();
+                                    let _ = client_out_tx.send(Message::Text(notice));
+                                }
+                                Err(ParseClientMsgError::TooManyTags(n, max)) => {
+                                    let notice = serde_json::json!(["NOTICE", format!("event has too many tags: {n} (max {max})")]).to_string();
+                                    let _ = client_out_tx.send(Message::Text(notice));
+                                }
+                                Err(ParseClientMsgError::TooManyFilters(n, max)) => {
+                                    let notice = serde_json::json!(["NOTICE", format!("REQ has too many filters: {n} (max {max})")]).to_string();
+                                    let _ = client_out_tx.send(Message::Text(notice));
                                 }
                                 Err(_) => {
                                     // パース不能は black-hole
@@ -591,6 +618,34 @@ fn should_autoclose_on_eose(req_text: &str, target_kinds: &std::collections::Has
                 .filter_map(|k| k.as_i64())
                 .all(|k| target_kinds.contains(&k))
     })
+}
+
+/// NIP-11 limitation を DB から読んで `ParseLimits` に変換する。
+async fn load_parse_limits(pool: &SqlitePool) -> ParseLimits {
+    let row: Option<(Option<i64>, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
+        "SELECT limitation_max_message_length, limitation_max_content_length, limitation_max_event_tags, limitation_max_filters \
+         FROM relay_info WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+    let (mml, mcl, met, mf) = row.unwrap_or((None, None, None, None));
+    ParseLimits {
+        max_message_length: mml.map(|n| n as usize),
+        max_content_length: mcl.map(|n| n as usize),
+        max_event_tags: met.map(|n| n as usize),
+        max_filters: mf.map(|n| n as usize),
+    }
+}
+
+async fn load_max_subscriptions(pool: &SqlitePool) -> Option<usize> {
+    let row: Option<(Option<i64>,)> = sqlx::query_as(
+        "SELECT limitation_max_subscriptions FROM relay_info WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+    row.and_then(|(v,)| v.map(|n| n as usize))
 }
 
 /// 互換 API: 旧シグネチャ。新規呼び出しは `proxy_ws_with_ctx` を使うこと。
