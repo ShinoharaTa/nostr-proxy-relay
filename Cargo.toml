@@ -58,4 +58,9 @@ pulldown-cmark = "0.10"
 rust-embed = { version = "8.5", features = ["axum"] }
 mime_guess = "2.0"
 reqwest = { version = "0.12", features = ["json"] }
+ipnet = "2.10"
+hdrhistogram = "7.5"
+async-stream = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+url = "2.5"
 

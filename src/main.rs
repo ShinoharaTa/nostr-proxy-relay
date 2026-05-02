@@ -1,13 +1,20 @@
-mod db;
-mod nostr;
-mod proxy;
-mod filter;
-mod parser;
-mod auth;
+mod access;
 mod api;
+mod auth;
+mod auth_throttle;
+mod config;
+mod db;
 mod docs;
-mod relay_pool;
+mod event_counter;
+mod event_stream;
+mod filter;
+mod log_cleaner;
 mod metrics;
+mod nostr;
+mod parser;
+mod proxy;
+mod relay_pool;
+mod session_registry;
 
 use db::{connect, migrate::migrate};
 use anyhow::Context;
@@ -27,7 +34,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use sqlx::SqlitePool;
 use rust_embed::Embed;
+use crate::access::IpAclCache;
+use crate::config::SettingsCache;
+use crate::event_counter::EventCounter;
+use crate::event_stream::LiveEventBus;
+use crate::proxy::ws_proxy::ProxyContext;
 use crate::relay_pool::RelayPool;
+use crate::session_registry::SessionRegistry;
 
 #[derive(Embed)]
 #[folder = "web/dist"]
@@ -266,11 +279,33 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("db migrated ok");
 
     let relay_pool = RelayPool::new(pool.clone());
+    let settings = SettingsCache::load(pool.clone()).await?;
+    let ip_acl = IpAclCache::new(pool.clone());
+    let session_registry = SessionRegistry::new();
+    let event_counter = EventCounter::new();
+    let event_bus = LiveEventBus::new(1024);
+    let auth_throttle = crate::auth_throttle::AuthThrottle::from_env();
+
+    event_counter.clone().spawn_flush_task(pool.clone());
+    crate::event_counter::spawn_retention_task(pool.clone(), 30);
+    crate::access::quarantine::spawn_expiry_task(pool.clone());
+    crate::log_cleaner::spawn(pool.clone());
 
     if let Some(influx) = metrics::InfluxExporter::from_env() {
-        influx.clone().run(pool.clone(), Some(relay_pool.clone()));
+        influx
+            .clone()
+            .run(pool.clone(), Some(relay_pool.clone()), Some(event_counter.clone()));
         tracing::info!("InfluxDB metrics exporter started");
     }
+
+    let proxy_ctx = ProxyContext {
+        pool: pool.clone(),
+        settings: settings.clone(),
+        ip_acl: ip_acl.clone(),
+        session_registry: session_registry.clone(),
+        event_counter: event_counter.clone(),
+        event_bus: event_bus.clone(),
+    };
 
     // Landing page configuration from environment variables
     let landing_config = docs::LandingPageConfig {
@@ -377,71 +412,77 @@ async fn main() -> anyhow::Result<()> {
         .nest_service("/config", static_dir)
         .layer(axum::middleware::from_fn_with_state(
             pool.clone(),
-            auth::basic_auth,
+            auth::basic_auth_legacy,
         ));
+
+    let api_state = api::routes::ApiState {
+        pool: pool.clone(),
+        relay_pool: relay_pool.clone(),
+        settings: settings.clone(),
+        ip_acl: ip_acl.clone(),
+        session_registry: session_registry.clone(),
+        event_bus: event_bus.clone(),
+    };
 
     let app = Router::new()
         .merge(protected)
-        .nest("/api", api::routes::router(pool.clone(), relay_pool))
+        .nest("/api", api::routes::router(api_state, auth_throttle.clone()))
         .nest("/docs", docs::router())
         .route(
             "/",
             get({
                 let pool = pool.clone();
                 let landing_config = landing_config.clone();
+                let proxy_ctx = proxy_ctx.clone();
                 move |ws: Option<WebSocketUpgrade>, headers: HeaderMap, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
                     let pool = pool.clone();
                     let landing_config = landing_config.clone();
+                    let proxy_ctx = proxy_ctx.clone();
                     let client_ip = addr.ip().to_string();
                     async move {
-                        // Check for NIP-11 request (Accept: application/nostr+json)
-                        let accept_header = headers.get(ACCEPT)
+                        let accept_header = headers
+                            .get(ACCEPT)
                             .and_then(|v| v.to_str().ok())
                             .unwrap_or("");
-                        
+
                         if accept_header.contains("application/nostr+json") {
-                            // NIP-11: Return relay information document
                             let info = get_nip11_info(&pool).await;
                             return (
                                 [(axum::http::header::CONTENT_TYPE, "application/nostr+json")],
                                 Json(info),
-                            ).into_response();
+                            )
+                                .into_response();
                         }
-                        
+
                         match ws {
                             Some(ws) => {
-                                // WebSocket接続の場合
                                 tracing::info!(ip = %client_ip, "WebSocket upgrade request received");
                                 ws.on_upgrade(move |socket| async move {
-                                    // DBから有効なリレーURLを取得
                                     let backend_url = get_backend_relay_url(&pool).await;
                                     if backend_url.is_empty() {
-                                        tracing::warn!(ip = %client_ip, "No backend relay configured, closing connection");
+                                        tracing::warn!(ip = %client_ip, "No backend relay configured");
                                         return;
                                     }
-                                    tracing::info!(ip = %client_ip, backend_url = %backend_url, "Starting WebSocket proxy");
-                                    if let Err(e) =
-                                        crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip.clone())).await
+                                    if let Err(e) = crate::proxy::ws_proxy::proxy_ws_with_ctx(
+                                        socket,
+                                        backend_url,
+                                        proxy_ctx,
+                                        client_ip.clone(),
+                                    )
+                                    .await
                                     {
                                         tracing::warn!(ip = %client_ip, error = %e, "WebSocket proxy ended with error");
-                                    } else {
-                                        tracing::info!(ip = %client_ip, "WebSocket proxy ended normally");
                                     }
-                                }).into_response()
+                                })
+                                .into_response()
                             }
-                            None => {
-                                // HTTP GETの場合はランディングページを表示
-                                docs::serve_landing_page(&landing_config).into_response()
-                            }
+                            None => docs::serve_landing_page(&landing_config).into_response(),
                         }
                     }
                 }
             }),
         )
-        .route(
-            "/healthz",
-            get(|| async { axum::http::StatusCode::OK }),
-        );
+        .route("/healthz", get(|| async { axum::http::StatusCode::OK }));
 
     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
     tracing::info!(%addr, "listening");

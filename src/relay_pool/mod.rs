@@ -66,6 +66,18 @@ impl RelayPool {
             if !enabled.contains(url) {
                 conns.remove(url);
                 tracing::info!(url = %url, "Removed relay from pool (disabled or deleted)");
+                let pool = self.pool.clone();
+                let url = url.clone();
+                tokio::spawn(async move {
+                    let _ = sqlx::query(
+                        "INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)",
+                    )
+                    .bind(&url)
+                    .bind("removed")
+                    .bind("disabled or deleted")
+                    .execute(&pool)
+                    .await;
+                });
             }
         }
         for url in enabled {
@@ -80,6 +92,7 @@ impl RelayPool {
                     conn.recv_broadcast_tx.clone(),
                     Arc::clone(&conn.last_error),
                     Arc::clone(&conn.connected_since),
+                    self.pool.clone(),
                 );
                 conns.insert(
                     url.clone(),
@@ -89,6 +102,18 @@ impl RelayPool {
                     },
                 );
                 tracing::info!(url = %url, "Added relay to pool");
+                let pool = self.pool.clone();
+                let url2 = url.clone();
+                tokio::spawn(async move {
+                    let _ = sqlx::query(
+                        "INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)",
+                    )
+                    .bind(&url2)
+                    .bind("added")
+                    .bind("")
+                    .execute(&pool)
+                    .await;
+                });
             }
         }
         Ok(())

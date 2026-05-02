@@ -5,6 +5,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::event_counter::EventCounter;
+
 pub struct InfluxExporter {
     client: Option<reqwest::Client>,
     url: String,
@@ -36,6 +38,7 @@ impl InfluxExporter {
         self: Arc<Self>,
         pool: sqlx::SqlitePool,
         relay_pool: Option<Arc<crate::relay_pool::RelayPool>>,
+        _event_counter: Option<Arc<EventCounter>>,
     ) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -64,10 +67,11 @@ impl InfluxExporter {
             .fetch_one(pool)
             .await
             .unwrap_or((0,));
-        let active: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM connection_logs WHERE disconnected_at IS NULL")
-            .fetch_one(pool)
-            .await
-            .unwrap_or((0,));
+        let active: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM connection_logs WHERE disconnected_at IS NULL")
+                .fetch_one(pool)
+                .await
+                .unwrap_or((0,));
         let total_rejections: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM event_rejection_logs")
             .fetch_one(pool)
             .await
@@ -86,6 +90,22 @@ impl InfluxExporter {
             total_rejections.0, now
         ));
 
+        // 直近 5 分の event_counters を action ごとに合算して送る
+        let cutoff = chrono::Utc::now().timestamp() / 60 - 5;
+        let counter_rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT action, SUM(count) FROM event_counters WHERE bucket_minute >= ? GROUP BY action",
+        )
+        .bind(cutoff)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        for (action, count) in counter_rows {
+            lines.push(format!(
+                "relay_event_counts,action={} value={} {}",
+                action, count, now
+            ));
+        }
+
         if let Some(rp) = relay_pool {
             let status = rp.status_snapshot().await;
             for s in status {
@@ -101,9 +121,7 @@ impl InfluxExporter {
         let body = lines.join("\n");
         let write_url = format!(
             "{}/api/v2/write?bucket={}&org={}",
-            self.url,
-            self.bucket,
-            self.org
+            self.url, self.bucket, self.org
         );
         let resp = client
             .post(&write_url)

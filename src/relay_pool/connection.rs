@@ -63,6 +63,7 @@ impl RelayConnection {
         recv_broadcast_tx: broadcast::Sender<String>,
         last_error: Arc<std::sync::RwLock<Option<String>>>,
         connected_since: Arc<std::sync::RwLock<Option<chrono::DateTime<chrono::Utc>>>>,
+        pool: sqlx::SqlitePool,
     ) {
         tokio::spawn(async move {
             let mut backoff_ms = RECONNECT_BACKOFF_MIN_MS;
@@ -77,6 +78,7 @@ impl RelayConnection {
                         *connected_since.write().unwrap() = Some(chrono::Utc::now());
                         status_history.record("up", None);
                         tracing::info!(url = %url, "Relay connected");
+                        log_event(&pool, &url, "connected", "").await;
                         let (mut ws_tx, mut ws_rx) = ws.split();
                         let mut connection_dropped = false;
                         let mut last_activity = std::time::Instant::now();
@@ -117,6 +119,7 @@ impl RelayConnection {
                                     let elapsed = last_activity.elapsed();
                                     if elapsed > Duration::from_secs(RELAY_TIMEOUT_SECS) {
                                         tracing::warn!(url = %url, timeout_secs = RELAY_TIMEOUT_SECS, "Relay connection timed out");
+                                        log_event(&pool, &url, "ping_timeout", "no message within timeout").await;
                                         connection_dropped = true;
                                     } else if ws_tx.send(TungMessage::Ping(vec![])).await.is_err() {
                                         tracing::warn!(url = %url, "Failed to send Ping to relay");
@@ -133,6 +136,7 @@ impl RelayConnection {
                         *state.write().unwrap() = ConnectionState::Disconnected;
                         status_history.record("down", None);
                         tracing::info!(url = %url, "Relay connection closed, reconnecting after backoff");
+                        log_event(&pool, &url, "disconnected", "").await;
                     }
                     Err(e) => {
                         *state.write().unwrap() = ConnectionState::Disconnected;
@@ -140,6 +144,7 @@ impl RelayConnection {
                         *last_error.write().unwrap() = Some(err_str.clone());
                         status_history.record("down", None);
                         tracing::warn!(url = %url, error = %e, "Relay connect failed, backing off");
+                        log_event(&pool, &url, "reconnect_failed", &err_str).await;
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
@@ -147,4 +152,15 @@ impl RelayConnection {
             }
         });
     }
+}
+
+async fn log_event(pool: &sqlx::SqlitePool, url: &str, event_type: &str, detail: &str) {
+    let _ = sqlx::query(
+        "INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)",
+    )
+    .bind(url)
+    .bind(event_type)
+    .bind(detail)
+    .execute(pool)
+    .await;
 }

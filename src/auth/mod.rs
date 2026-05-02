@@ -1,12 +1,21 @@
 use anyhow::Context;
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::Response,
 };
 use base64::Engine;
 use sqlx::SqlitePool;
+use std::net::SocketAddr;
+
+use crate::auth_throttle::AuthThrottle;
+
+#[derive(Clone)]
+pub struct AuthState {
+    pub pool: SqlitePool,
+    pub throttle: AuthThrottle,
+}
 
 /// Ensure an admin user exists (idempotent).
 pub async fn ensure_admin_user(
@@ -32,7 +41,56 @@ pub async fn ensure_admin_user(
 }
 
 /// Basic auth middleware for admin endpoints.
+/// 失敗回数に応じて IP 単位で一時的にロックアウトする。
 pub async fn basic_auth(
+    State(state): State<AuthState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let ip = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if state.throttle.is_locked(&ip) {
+        return locked();
+    }
+
+    let auth = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let Some((username, password)) = parse_basic_auth(auth) else {
+        state.throttle.on_failure(&ip);
+        return unauthorized();
+    };
+
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = ?")
+            .bind(&username)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+
+    let Some((hash,)) = row else {
+        state.throttle.on_failure(&ip);
+        return unauthorized();
+    };
+    let ok = bcrypt::verify(&password, &hash).unwrap_or(false);
+    if !ok {
+        state.throttle.on_failure(&ip);
+        return unauthorized();
+    }
+    state.throttle.on_success(&ip);
+    next.run(req).await
+}
+
+/// 旧シグネチャ互換（main.rs の `protected` レイヤから利用）。
+pub async fn basic_auth_legacy(
     State(pool): State<SqlitePool>,
     req: Request,
     next: Next,
@@ -42,11 +100,9 @@ pub async fn basic_auth(
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-
     let Some((username, password)) = parse_basic_auth(auth) else {
         return unauthorized();
     };
-
     let row: Option<(String,)> =
         sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = ?")
             .bind(&username)
@@ -54,15 +110,12 @@ pub async fn basic_auth(
             .await
             .ok()
             .flatten();
-
     let Some((hash,)) = row else {
         return unauthorized();
     };
-    let ok = bcrypt::verify(&password, &hash).unwrap_or(false);
-    if !ok {
+    if !bcrypt::verify(&password, &hash).unwrap_or(false) {
         return unauthorized();
     }
-
     next.run(req).await
 }
 
@@ -87,3 +140,8 @@ fn unauthorized() -> Response {
     resp
 }
 
+fn locked() -> Response {
+    let mut resp = Response::new(axum::body::Body::from("Too many failed attempts. Try again later."));
+    *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+    resp
+}

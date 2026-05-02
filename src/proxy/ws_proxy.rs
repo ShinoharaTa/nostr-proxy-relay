@@ -3,12 +3,25 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TungMessage};
 
+use crate::access::{
+    evaluate_post, evaluate_quarantine, pubkey_hex_to_npub, IpAclCache, IpDecision, PostDecision,
+    QuarantineDecision,
+};
+use crate::config::{PostPolicy, SettingsCache};
+use crate::event_counter::{Action as CounterAction, EventCounter};
+use crate::event_stream::{LiveEvent, LiveEventBus};
 use crate::filter::engine::FilterEngine;
 use crate::nostr::event::Event;
-use crate::nostr::message::{parse_client_msg, ClientMsg};
+use crate::nostr::message::{parse_client_msg, ClientMsg, ParseClientMsgError};
+use crate::session_registry::SessionRegistry;
+
+const PING_INTERVAL_SECS: u64 = 30;
+const CLIENT_TIMEOUT_SECS: u64 = 120;
+const BACKEND_TIMEOUT_SECS: u64 = 90;
 
 #[derive(Debug, Clone)]
 struct ReqCacheEntry {
@@ -16,65 +29,70 @@ struct ReqCacheEntry {
     eose_autoclose: bool,
 }
 
-/// Ping interval for keep-alive (seconds)
-const PING_INTERVAL_SECS: u64 = 30;
-/// Client timeout - close if no message received within this period (seconds)
-const CLIENT_TIMEOUT_SECS: u64 = 120;
-/// Backend relay timeout - close if no message received within this period (seconds)
-const BACKEND_TIMEOUT_SECS: u64 = 90;
-
-/// One backend relay connection per client websocket connection (initial implementation).
-pub async fn proxy_ws(client_ws: WebSocket, backend_url: String) -> anyhow::Result<()> {
-    proxy_ws_with_pool(client_ws, backend_url, None, None).await
+#[derive(Clone)]
+pub struct ProxyContext {
+    pub pool: SqlitePool,
+    pub settings: Arc<SettingsCache>,
+    pub ip_acl: Arc<IpAclCache>,
+    pub session_registry: Arc<SessionRegistry>,
+    pub event_counter: Arc<EventCounter>,
+    pub event_bus: Arc<LiveEventBus>,
 }
 
-pub async fn proxy_ws_with_pool(
+pub async fn proxy_ws_with_ctx(
     client_ws: WebSocket,
     backend_url: String,
-    pool: Option<SqlitePool>,
-    client_ip: Option<String>,
+    ctx: ProxyContext,
+    client_ip: String,
 ) -> anyhow::Result<()> {
-    let ip_str = client_ip.as_deref().unwrap_or("unknown");
-    tracing::info!(ip = %ip_str, backend_url = %backend_url, "WebSocket connection established");
+    tracing::info!(ip = %client_ip, backend_url = %backend_url, "WebSocket connection established");
 
-    // IP BANチェック
-    if let (Some(pool), Some(ip)) = (&pool, &client_ip) {
-        if is_ip_banned(pool, ip).await? {
-            tracing::warn!(ip = %ip, "IP banned, rejecting connection");
+    // ── IP ACL 判定 ──
+    let ip_decision = ctx.ip_acl.evaluate(&client_ip).await;
+    match &ip_decision {
+        IpDecision::HardBan => {
+            tracing::warn!(ip = %client_ip, "IP hard_ban: rejecting connection");
             return Ok(());
         }
-    }
-
-    // 接続ログ記録
-    let connection_log_id: Option<i64> = if let (Some(pool), Some(ip)) = (&pool, &client_ip) {
-        let result = sqlx::query(
-            "INSERT INTO connection_logs (ip_address) VALUES (?) RETURNING id",
-        )
-        .bind(ip)
-        .fetch_optional(pool)
-        .await;
-        match result {
-            Ok(Some(row)) => {
-                use sqlx::Row;
-                let log_id = row.get::<i64, _>("id");
-                tracing::info!(ip = %ip, connection_log_id = log_id, "Connection log created");
-                Some(log_id)
-            }
-            Err(e) => {
-                tracing::warn!(ip = %ip, error = %e, "Failed to create connection log");
-                None
-            }
-            _ => None,
+        IpDecision::ShadowBan => {
+            tracing::warn!(ip = %client_ip, "IP shadow_ban: connection accepted but silenced");
         }
-    } else {
-        None
+        _ => {}
+    }
+    let is_shadow = matches!(ip_decision, IpDecision::ShadowBan);
+    let is_whitelisted = matches!(ip_decision, IpDecision::Whitelist);
+
+    // 接続ログ
+    let connection_log_id: Option<i64> = match sqlx::query(
+        "INSERT INTO connection_logs (ip_address) VALUES (?) RETURNING id",
+    )
+    .bind(&client_ip)
+    .fetch_optional(&ctx.pool)
+    .await
+    {
+        Ok(Some(row)) => {
+            use sqlx::Row;
+            Some(row.get::<i64, _>("id"))
+        }
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(ip = %client_ip, error = %e, "Failed to create connection log");
+            None
+        }
     };
 
-    let (mut client_tx, mut client_rx) = client_ws.split();
+    ctx.event_bus.publish(LiveEvent::ConnectionOpened {
+        ts: chrono::Utc::now().to_rfc3339(),
+        ip: client_ip.clone(),
+    });
 
+    // 強制切断シグナル
+    let (close_tx, mut close_rx) = tokio::sync::oneshot::channel::<()>();
+    let session_id = ctx.session_registry.register(client_ip.clone(), close_tx);
+
+    let (mut client_tx, mut client_rx) = client_ws.split();
     let mut filter_engine = FilterEngine::new();
 
-    // Multiplex all outbound-to-client messages through a single sender task
     let (client_out_tx, mut client_out_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
     let client_sender = tokio::spawn(async move {
         while let Some(msg) = client_out_rx.recv().await {
@@ -84,30 +102,24 @@ pub async fn proxy_ws_with_pool(
         }
     });
 
-    // Keep-alive: track last activity from client
     let mut last_client_activity = Instant::now();
-
-    // REQ cache for resubscription after backend reconnect (sub_id -> raw JSON text)
     let mut req_cache: HashMap<String, ReqCacheEntry> = HashMap::new();
-    let eose_autoclose_kinds = parse_eose_autoclose_kinds_from_env();
-
-    // Backend reconnection loop
     let mut is_first_connect = true;
+    let mut settings_watch = ctx.settings.watch();
 
     'reconnect: loop {
-        // Connect to backend relay
         tracing::info!(backend_url = %backend_url, "Connecting to backend relay");
         let backend_ws = match connect_async(&backend_url).await {
             Ok((ws, resp)) => {
-                tracing::info!(backend_url = %backend_url, status = ?resp.status(), "Backend relay connected successfully");
+                tracing::info!(backend_url = %backend_url, status = ?resp.status(), "Backend relay connected");
                 ws
             }
             Err(e) => {
                 if is_first_connect {
-                    tracing::error!(backend_url = %backend_url, error = %e, "Failed to connect to backend relay");
+                    tracing::error!(backend_url = %backend_url, error = %e, "Failed to connect to backend");
                     break 'reconnect;
                 }
-                tracing::warn!(backend_url = %backend_url, error = %e, "Failed to reconnect to backend relay, retrying...");
+                tracing::warn!(backend_url = %backend_url, error = %e, "reconnect failed, retrying");
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 continue 'reconnect;
             }
@@ -117,35 +129,34 @@ pub async fn proxy_ws_with_pool(
         let (mut backend_tx, mut backend_rx) = backend_ws.split();
         let mut last_backend_activity = Instant::now();
 
-        // Resend cached REQs after reconnect
         if !req_cache.is_empty() {
-            tracing::info!(count = req_cache.len(), "Resending cached REQs after backend reconnect");
             for (sub_id, entry) in &req_cache {
-                tracing::info!(sub_id = %sub_id, "Resending REQ");
-                if backend_tx
-                    .send(TungMessage::Text(entry.req_text.clone()))
-                    .await
-                    .is_err()
-                {
-                    tracing::warn!("Failed to resend REQ, will retry on next reconnect");
+                tracing::info!(sub_id = %sub_id, "Resending cached REQ");
+                if backend_tx.send(TungMessage::Text(entry.req_text.clone())).await.is_err() {
                     continue 'reconnect;
                 }
             }
         }
 
-        // Ping intervals
-        let mut client_ping_interval =
-            tokio::time::interval(std::time::Duration::from_secs(PING_INTERVAL_SECS));
-        client_ping_interval.tick().await; // skip immediate first tick
-        let mut backend_ping_interval =
-            tokio::time::interval(std::time::Duration::from_secs(PING_INTERVAL_SECS));
-        backend_ping_interval.tick().await;
-
+        let mut client_ping = tokio::time::interval(std::time::Duration::from_secs(PING_INTERVAL_SECS));
+        client_ping.tick().await;
+        let mut backend_ping = tokio::time::interval(std::time::Duration::from_secs(PING_INTERVAL_SECS));
+        backend_ping.tick().await;
         let mut backend_disconnected = false;
 
-        // Main event loop
         loop {
             tokio::select! {
+                // 強制切断
+                _ = &mut close_rx => {
+                    tracing::info!(ip = %client_ip, "Force disconnect signal received");
+                    return cleanup(client_out_tx, client_sender, &ctx, session_id, &client_ip, connection_log_id).await;
+                }
+
+                // 設定変更
+                _ = settings_watch.changed() => {
+                    tracing::debug!(ip = %client_ip, "settings reloaded");
+                }
+
                 // ── Client -> Backend ──
                 msg = client_rx.next() => {
                     match msg {
@@ -153,55 +164,56 @@ pub async fn proxy_ws_with_pool(
                             last_client_activity = Instant::now();
                             match parse_client_msg(&text) {
                                 Ok(ClientMsg::Event { event }) => {
-                                    if let Some(pool) = &pool {
-                                        let allowed = match is_post_allowed(pool, &event.pubkey).await {
-                                            Ok(a) => a,
-                                            Err(e) => {
-                                                tracing::error!(error = %e, "Failed to check post_allowed");
-                                                false
-                                            }
-                                        };
-                                        if !allowed {
-                                            tracing::warn!(event_id = %event.id, pubkey_hex = %event.pubkey, "EVENT blocked: not in safelist or post_allowed flag not set");
-                                            if let Err(e) = log_rejection(pool, &event, "not_in_safelist", client_ip.as_deref()).await {
-                                                tracing::error!(error = %e, "Failed to log rejection");
-                                            }
-                                            if let Some(log_id) = connection_log_id {
-                                                let _ = sqlx::query(
-                                                    "UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?"
-                                                )
-                                                .bind(log_id)
-                                                .execute(pool)
-                                                .await;
-                                            }
-                                            let notice = serde_json::json!(["NOTICE", "blocked: not in safelist"]);
-                                            let _ = client_out_tx.send(Message::Text(notice.to_string()));
-                                            continue;
-                                        }
-                                    } else {
-                                        tracing::warn!("No pool available, forwarding EVENT without safelist check");
+                                    if !handle_post_event(
+                                        &ctx,
+                                        &mut filter_engine,
+                                        &client_ip,
+                                        is_shadow,
+                                        is_whitelisted,
+                                        &event,
+                                        &client_out_tx,
+                                        connection_log_id,
+                                    ).await {
+                                        // 拒否（または shadow drop）。バックエンドへは送らない。
+                                        continue;
+                                    }
+                                    // 通過: そのまま転送
+                                    if backend_tx.send(TungMessage::Text(text.clone())).await.is_err() {
+                                        backend_disconnected = true;
+                                        break;
                                     }
                                 }
                                 Ok(ClientMsg::Req { ref sub_id, .. }) => {
-                                    // Cache REQ for resubscription after backend reconnect
-                                    let eose_autoclose =
-                                        should_autoclose_on_eose(&text, &eose_autoclose_kinds);
-                                    req_cache.insert(
-                                        sub_id.clone(),
-                                        ReqCacheEntry {
-                                            req_text: text.clone(),
-                                            eose_autoclose,
-                                        },
-                                    );
+                                    // REQ 段の遮断: shadow_ban / quarantine(req)
+                                    if is_shadow {
+                                        let _ = client_out_tx.send(Message::Text(serde_json::json!(["EOSE", sub_id]).to_string()));
+                                        continue;
+                                    }
+                                    let kinds = ctx.settings.eose_autoclose_kinds().await;
+                                    let eose_autoclose = should_autoclose_on_eose(&text, &kinds);
+                                    req_cache.insert(sub_id.clone(), ReqCacheEntry { req_text: text.clone(), eose_autoclose });
+                                    if backend_tx.send(TungMessage::Text(text)).await.is_err() {
+                                        backend_disconnected = true;
+                                        break;
+                                    }
                                 }
                                 Ok(ClientMsg::Close { ref sub_id }) => {
                                     req_cache.remove(sub_id);
+                                    if backend_tx.send(TungMessage::Text(text)).await.is_err() {
+                                        backend_disconnected = true;
+                                        break;
+                                    }
                                 }
-                                Err(_) => {}
-                            }
-                            if backend_tx.send(TungMessage::Text(text)).await.is_err() {
-                                backend_disconnected = true;
-                                break;
+                                Err(ParseClientMsgError::UnsupportedCommand(_)) => {
+                                    // 知らないコマンドはそのまま転送
+                                    if backend_tx.send(TungMessage::Text(text)).await.is_err() {
+                                        backend_disconnected = true;
+                                        break;
+                                    }
+                                }
+                                Err(_) => {
+                                    // パース不能は black-hole
+                                }
                             }
                         }
                         Some(Ok(Message::Binary(bin))) => {
@@ -212,32 +224,23 @@ pub async fn proxy_ws_with_pool(
                             }
                         }
                         Some(Ok(Message::Ping(p))) => {
-                            // Client is pinging us - reply with Pong
                             last_client_activity = Instant::now();
                             let _ = client_out_tx.send(Message::Pong(p));
                         }
                         Some(Ok(Message::Pong(_))) => {
-                            // Pong from client (response to our keep-alive Ping)
                             last_client_activity = Instant::now();
                         }
                         Some(Ok(Message::Close(frame))) => {
-                            let close_info = frame.as_ref().map(|f| (f.code, f.reason.clone()));
-                            tracing::info!(close_code = ?close_info.as_ref().map(|(c, _)| c), close_reason = ?close_info.as_ref().map(|(_, r)| r.as_ref()), "Client closed connection");
+                            tracing::info!(ip = %client_ip, "Client closed connection");
                             let close = frame.map(|f| tokio_tungstenite::tungstenite::protocol::CloseFrame {
                                 code: f.code.into(),
                                 reason: f.reason,
                             });
                             let _ = backend_tx.send(TungMessage::Close(close)).await;
-                            break; // Client closed, exit
-                        }
-                        Some(Err(e)) => {
-                            tracing::warn!(ip = %ip_str, error = %e, "Client WebSocket error");
                             break;
                         }
-                        None => {
-                            tracing::info!(ip = %ip_str, "Client stream ended");
-                            break;
-                        }
+                        Some(Err(e)) => { tracing::warn!(ip = %client_ip, error = %e, "client ws error"); break; }
+                        None => { tracing::info!(ip = %client_ip, "client stream ended"); break; }
                     }
                 }
 
@@ -246,236 +249,321 @@ pub async fn proxy_ws_with_pool(
                     match msg {
                         Some(Ok(TungMessage::Text(text))) => {
                             last_backend_activity = Instant::now();
-                            if let Some(pool) = &pool {
-                                match filter_engine.should_drop_backend_text_with_ip(pool, &text, client_ip.as_deref()).await {
-                                    Ok(true) => {
-                                        tracing::info!("Backend EVENT dropped by filter");
-                                        continue;
+
+                            let outcome = filter_engine
+                                .should_drop_backend_text_with_ip(&ctx.pool, &text, Some(&client_ip))
+                                .await
+                                .unwrap_or_else(|e| {
+                                    tracing::error!(error = %e, "filter check error");
+                                    crate::filter::engine::DropOutcome::pass()
+                                });
+                            if outcome.dropped {
+                                if let Some(ev) = &outcome.event {
+                                    ctx.event_counter.record(ev.kind, CounterAction::Rejected);
+                                    ctx.event_bus.publish(LiveEvent::EventDropped {
+                                        ts: chrono::Utc::now().to_rfc3339(),
+                                        kind: ev.kind,
+                                        npub: pubkey_hex_to_npub(&ev.pubkey).unwrap_or_default(),
+                                        sub_id: text_sub_id(&text).unwrap_or_default(),
+                                        reason: outcome.reason.clone().unwrap_or_default(),
+                                    });
+                                }
+                                continue;
+                            }
+
+                            // OK / EOSE / CLOSED の追跡 + Quarantine(req) チェック
+                            if let Some(action) = handle_backend_text(&ctx, &text, &mut req_cache, &client_ip, &client_out_tx, connection_log_id, is_shadow, is_whitelisted).await {
+                                match action {
+                                    BackendTextAction::SendCloseToBackend(sub_id) => {
+                                        let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
+                                        if backend_tx.send(TungMessage::Text(close_msg)).await.is_err() {
+                                            backend_disconnected = true;
+                                            break;
+                                        }
                                     }
-                                    Ok(false) => {}
-                                    Err(e) => {
-                                        tracing::error!(error = %e, "Error in filter check, passing through");
-                                    }
+                                    BackendTextAction::Drop => continue,
                                 }
                             }
-                            // Check message type for stats and subscription cache lifecycle.
-                            if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(&text) {
-                                if let Some(msg_type) = arr.first().and_then(|v| v.as_str()) {
-                                    if msg_type == "OK" {
-                                        if let Some(_event_id) = arr.get(1).and_then(|v| v.as_str()) {
-                                            let accepted = arr.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
-                                            if let (Some(pool), Some(log_id)) = (&pool, connection_log_id) {
-                                                if accepted {
-                                                    let _ = sqlx::query(
-                                                        "UPDATE connection_logs SET event_count = event_count + 1 WHERE id = ?"
-                                                    )
-                                                    .bind(log_id)
-                                                    .execute(pool)
-                                                    .await;
-                                                } else {
-                                                    let _ = sqlx::query(
-                                                        "UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?"
-                                                    )
-                                                    .bind(log_id)
-                                                    .execute(pool)
-                                                    .await;
-                                                }
-                                            }
-                                        }
-                                    } else if msg_type == "EOSE" {
-                                        if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
-                                            let should_close = req_cache
-                                                .get(sub_id)
-                                                .map(|entry| entry.eose_autoclose)
-                                                .unwrap_or(false);
-                                            if should_close {
-                                                req_cache.remove(sub_id);
-                                                let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
-                                                if backend_tx.send(TungMessage::Text(close_msg)).await.is_err() {
-                                                    backend_disconnected = true;
-                                                    break;
-                                                }
-                                                tracing::info!(sub_id = %sub_id, "Sent CLOSE after EOSE for one-shot subscription");
-                                            }
-                                        }
-                                    } else if msg_type == "CLOSED" {
-                                        if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
-                                            req_cache.remove(sub_id);
-                                            tracing::info!(sub_id = %sub_id, "Removed REQ cache entry after CLOSED");
-                                        }
-                                    }
-                                }
+
+                            // shadow_ban: REQ レスポンスを送らない
+                            if is_shadow {
+                                continue;
+                            }
+
+                            if let Some(event) = outcome.event {
+                                ctx.event_counter.record(event.kind, CounterAction::Delivered);
+                                ctx.event_bus.publish(LiveEvent::EventDelivered {
+                                    ts: chrono::Utc::now().to_rfc3339(),
+                                    kind: event.kind,
+                                    npub: pubkey_hex_to_npub(&event.pubkey).unwrap_or_default(),
+                                    sub_id: text_sub_id(&text).unwrap_or_default(),
+                                });
                             }
                             let _ = client_out_tx.send(Message::Text(text));
                         }
                         Some(Ok(TungMessage::Binary(bin))) => {
                             last_backend_activity = Instant::now();
-                            let _ = client_out_tx.send(Message::Binary(bin));
-                        }
-                        Some(Ok(TungMessage::Ping(p))) => {
-                            // Backend is pinging us - reply with Pong
-                            last_backend_activity = Instant::now();
-                            if backend_tx.send(TungMessage::Pong(p)).await.is_err() {
-                                backend_disconnected = true;
-                                break;
+                            if !is_shadow {
+                                let _ = client_out_tx.send(Message::Binary(bin));
                             }
                         }
-                        Some(Ok(TungMessage::Pong(_))) => {
-                            // Pong from backend (response to our keep-alive Ping)
+                        Some(Ok(TungMessage::Ping(p))) => {
                             last_backend_activity = Instant::now();
+                            if backend_tx.send(TungMessage::Pong(p)).await.is_err() { backend_disconnected = true; break; }
                         }
-                        Some(Ok(TungMessage::Close(frame))) => {
-                            let close_info = frame.as_ref().map(|f| (f.code, f.reason.clone()));
-                            tracing::info!(close_code = ?close_info.as_ref().map(|(c, _)| c), close_reason = ?close_info.as_ref().map(|(_, r)| r.as_ref()), "Backend closed connection");
-                            backend_disconnected = true;
-                            break;
-                        }
-                        Some(Err(e)) => {
-                            tracing::warn!(backend_url = %backend_url, error = %e, "Backend WebSocket error");
-                            backend_disconnected = true;
-                            break;
-                        }
-                        None => {
-                            tracing::info!(backend_url = %backend_url, "Backend stream ended");
-                            backend_disconnected = true;
-                            break;
-                        }
-                        _ => {
-                            // Ignore frames we don't map
-                        }
+                        Some(Ok(TungMessage::Pong(_))) => { last_backend_activity = Instant::now(); }
+                        Some(Ok(TungMessage::Close(_))) => { backend_disconnected = true; break; }
+                        Some(Err(e)) => { tracing::warn!(backend_url = %backend_url, error = %e, "backend ws error"); backend_disconnected = true; break; }
+                        None => { backend_disconnected = true; break; }
+                        _ => {}
                     }
                 }
 
-                // ── Client keep-alive ──
-                _ = client_ping_interval.tick() => {
-                    let elapsed = last_client_activity.elapsed();
-                    if elapsed > std::time::Duration::from_secs(CLIENT_TIMEOUT_SECS) {
-                        tracing::warn!(ip = %ip_str, timeout_secs = CLIENT_TIMEOUT_SECS, "Client timed out, closing connection");
+                _ = client_ping.tick() => {
+                    if last_client_activity.elapsed() > std::time::Duration::from_secs(CLIENT_TIMEOUT_SECS) {
+                        tracing::warn!(ip = %client_ip, "client timeout");
                         break;
                     }
-                    if client_out_tx.send(Message::Ping(vec![])).is_err() {
-                        break;
-                    }
+                    if client_out_tx.send(Message::Ping(vec![])).is_err() { break; }
                 }
-
-                // ── Backend keep-alive ──
-                _ = backend_ping_interval.tick() => {
-                    let elapsed = last_backend_activity.elapsed();
-                    if elapsed > std::time::Duration::from_secs(BACKEND_TIMEOUT_SECS) {
-                        tracing::warn!(backend_url = %backend_url, timeout_secs = BACKEND_TIMEOUT_SECS, "Backend relay timed out");
+                _ = backend_ping.tick() => {
+                    if last_backend_activity.elapsed() > std::time::Duration::from_secs(BACKEND_TIMEOUT_SECS) {
+                        tracing::warn!(backend_url = %backend_url, "backend timeout");
                         backend_disconnected = true;
                         break;
                     }
-                    if backend_tx.send(TungMessage::Ping(vec![])).await.is_err() {
-                        tracing::warn!(backend_url = %backend_url, "Failed to send Ping to backend relay");
-                        backend_disconnected = true;
-                        break;
-                    }
+                    if backend_tx.send(TungMessage::Ping(vec![])).await.is_err() { backend_disconnected = true; break; }
                 }
             }
         }
 
         if !backend_disconnected {
-            // Client disconnected - exit reconnection loop
             break 'reconnect;
         }
-
-        // Backend disconnected - reconnect after short delay
-        tracing::info!(
-            backend_url = %backend_url,
-            cached_reqs = req_cache.len(),
-            "Backend disconnected, reconnecting..."
-        );
+        tracing::info!(backend_url = %backend_url, "backend disconnected, reconnecting");
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 
+    cleanup(client_out_tx, client_sender, &ctx, session_id, &client_ip, connection_log_id).await
+}
+
+async fn cleanup(
+    client_out_tx: tokio::sync::mpsc::UnboundedSender<Message>,
+    client_sender: tokio::task::JoinHandle<()>,
+    ctx: &ProxyContext,
+    session_id: u64,
+    client_ip: &str,
+    connection_log_id: Option<i64>,
+) -> anyhow::Result<()> {
     drop(client_out_tx);
     let _ = client_sender.await;
-
-    // 接続ログ更新（切断時刻）
-    if let (Some(pool), Some(log_id)) = (&pool, connection_log_id) {
-        let _ = sqlx::query(
-            "UPDATE connection_logs SET disconnected_at = datetime('now') WHERE id = ?",
-        )
-        .bind(log_id)
-        .execute(pool)
-        .await;
+    ctx.session_registry.unregister(session_id);
+    if let Some(log_id) = connection_log_id {
+        let _ = sqlx::query("UPDATE connection_logs SET disconnected_at = datetime('now') WHERE id = ?")
+            .bind(log_id)
+            .execute(&ctx.pool)
+            .await;
     }
-
+    ctx.event_bus.publish(LiveEvent::ConnectionClosed {
+        ts: chrono::Utc::now().to_rfc3339(),
+        ip: client_ip.to_string(),
+    });
     Ok(())
 }
 
-// ── Helper functions ──
-
-async fn is_post_allowed(pool: &SqlitePool, pubkey_hex: &str) -> anyhow::Result<bool> {
-    let npub = match pubkey_hex_to_npub(pubkey_hex) {
-        Ok(n) => n,
-        Err(e) => {
-            tracing::warn!(pubkey_hex = %pubkey_hex, error = %e, "Failed to convert pubkey_hex to npub");
-            return Ok(false);
-        }
-    };
-    let row: Option<(i64,)> = sqlx::query_as("SELECT flags FROM safelist WHERE npub = ?")
-        .bind(&npub)
-        .fetch_optional(pool)
-        .await?;
-    let allowed = row.map(|(flags,)| (flags & 1) == 1).unwrap_or(false);
-    Ok(allowed)
-}
-
-fn pubkey_hex_to_npub(pubkey_hex: &str) -> anyhow::Result<String> {
-    let bytes = hex::decode(pubkey_hex).context("pubkey hex decode")?;
-    let hrp = bech32::Hrp::parse("npub").context("invalid bech32 hrp")?;
-    Ok(bech32::encode::<bech32::Bech32>(hrp, &bytes)?)
-}
-
-async fn log_rejection(
-    pool: &SqlitePool,
+/// 戻り値 false = drop（バックエンド転送しない）, true = 通過。
+async fn handle_post_event(
+    ctx: &ProxyContext,
+    filter_engine: &mut FilterEngine,
+    client_ip: &str,
+    is_shadow: bool,
+    is_whitelisted: bool,
     event: &Event,
-    reason: &str,
-    ip_address: Option<&str>,
-) -> anyhow::Result<()> {
-    let npub = match pubkey_hex_to_npub(&event.pubkey) {
-        Ok(n) => n,
+    client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    connection_log_id: Option<i64>,
+) -> bool {
+    // shadow_ban: OK true で偽装し、転送しない
+    if is_shadow {
+        let _ = client_out_tx.send(Message::Text(
+            serde_json::json!(["OK", event.id, true, ""]).to_string(),
+        ));
+        ctx.event_counter.record(event.kind, CounterAction::Rejected);
+        return false;
+    }
+
+    // POST policy
+    let policy = ctx.settings.post_policy().await;
+    let post_decision = match evaluate_post(&ctx.pool, &event.pubkey, &policy).await {
+        Ok(d) => d,
         Err(e) => {
-            tracing::warn!(pubkey_hex = %event.pubkey, error = %e, "Failed to convert pubkey_hex to npub in log_rejection");
-            "unknown".to_string()
+            tracing::error!(error = %e, "evaluate_post failed");
+            PostDecision::Deny("evaluate_error")
         }
     };
-    match sqlx::query(
-        "INSERT INTO event_rejection_logs (event_id, pubkey_hex, npub, ip_address, kind, reason) VALUES (?, ?, ?, ?, ?, ?)"
+
+    if let PostDecision::Deny(reason) = post_decision {
+        if !is_whitelisted {
+            reject_post(ctx, event, client_ip, reason, client_out_tx, connection_log_id).await;
+            return false;
+        }
+    }
+
+    // Quarantine
+    let npub = pubkey_hex_to_npub(&event.pubkey).unwrap_or_default();
+    if !is_whitelisted {
+        if let Ok(QuarantineDecision::Active(scope)) = evaluate_quarantine(&ctx.pool, &npub).await {
+            if scope.covers_post() {
+                let _ = client_out_tx.send(Message::Text(
+                    serde_json::json!(["OK", event.id, true, ""]).to_string(),
+                ));
+                ctx.event_counter.record(event.kind, CounterAction::Rejected);
+                ctx.event_bus.publish(LiveEvent::EventRejected {
+                    ts: chrono::Utc::now().to_rfc3339(),
+                    kind: event.kind,
+                    npub,
+                    ip: Some(client_ip.to_string()),
+                    reason: "quarantine".into(),
+                });
+                if let Some(log_id) = connection_log_id {
+                    let _ = sqlx::query("UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?")
+                        .bind(log_id)
+                        .execute(&ctx.pool)
+                        .await;
+                }
+                return false;
+            }
+        }
+    }
+
+    // DSL / Simple BAN: POST 適用ルール
+    if !is_whitelisted {
+        match filter_engine.evaluate_post_extra(&ctx.pool, event).await {
+            Ok(Some(reason)) => {
+                let static_reason: &'static str = if reason.starts_with("filter_rule:") {
+                    "filter_rule_post"
+                } else {
+                    "simple_ban_post"
+                };
+                reject_post(ctx, event, client_ip, static_reason, client_out_tx, connection_log_id).await;
+                return false;
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(error = %e, "evaluate_post_extra error"),
+        }
+    }
+
+    // accepted
+    ctx.event_counter.record(event.kind, CounterAction::Posted);
+    ctx.event_bus.publish(LiveEvent::EventAccepted {
+        ts: chrono::Utc::now().to_rfc3339(),
+        kind: event.kind,
+        npub,
+        ip: Some(client_ip.to_string()),
+    });
+    true
+}
+
+async fn reject_post(
+    ctx: &ProxyContext,
+    event: &Event,
+    client_ip: &str,
+    reason: &str,
+    client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    connection_log_id: Option<i64>,
+) {
+    let npub = pubkey_hex_to_npub(&event.pubkey).unwrap_or_default();
+    let _ = sqlx::query(
+        "INSERT INTO event_rejection_logs (event_id, pubkey_hex, npub, ip_address, kind, reason) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pubkey)
     .bind(&npub)
-    .bind(ip_address)
+    .bind(client_ip)
     .bind(event.kind)
     .bind(reason)
-    .execute(pool)
-    .await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            tracing::error!(event_id = %event.id, npub = %npub, reason = %reason, error = %e, "Failed to insert event rejection log");
-            Err(anyhow::anyhow!("Failed to log rejection: {}", e))
+    .execute(&ctx.pool)
+    .await;
+    if let Some(log_id) = connection_log_id {
+        let _ = sqlx::query("UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?")
+            .bind(log_id)
+            .execute(&ctx.pool)
+            .await;
+    }
+    ctx.event_counter.record(event.kind, CounterAction::Rejected);
+    ctx.event_bus.publish(LiveEvent::EventRejected {
+        ts: chrono::Utc::now().to_rfc3339(),
+        kind: event.kind,
+        npub,
+        ip: Some(client_ip.to_string()),
+        reason: reason.to_string(),
+    });
+    let _ = client_out_tx.send(Message::Text(
+        serde_json::json!(["OK", event.id, false, format!("blocked: {}", reason)]).to_string(),
+    ));
+}
+
+enum BackendTextAction {
+    SendCloseToBackend(String),
+    Drop,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_backend_text(
+    ctx: &ProxyContext,
+    text: &str,
+    req_cache: &mut HashMap<String, ReqCacheEntry>,
+    client_ip: &str,
+    _client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    connection_log_id: Option<i64>,
+    _is_shadow: bool,
+    _is_whitelisted: bool,
+) -> Option<BackendTextAction> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let arr = v.as_array()?;
+    let msg_type = arr.first()?.as_str()?;
+    match msg_type {
+        "OK" => {
+            let accepted = arr.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
+            if let Some(log_id) = connection_log_id {
+                let q = if accepted {
+                    "UPDATE connection_logs SET event_count = event_count + 1 WHERE id = ?"
+                } else {
+                    "UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?"
+                };
+                let _ = sqlx::query(q).bind(log_id).execute(&ctx.pool).await;
+            }
+            None
+        }
+        "EOSE" => {
+            let sub_id = arr.get(1)?.as_str()?;
+            if let Some(entry) = req_cache.get(sub_id).cloned() {
+                if entry.eose_autoclose {
+                    req_cache.remove(sub_id);
+                    return Some(BackendTextAction::SendCloseToBackend(sub_id.to_string()));
+                }
+            }
+            None
+        }
+        "CLOSED" => {
+            if let Some(sub_id) = arr.get(1).and_then(|v| v.as_str()) {
+                req_cache.remove(sub_id);
+            }
+            None
+        }
+        _ => {
+            // event の sub_id を眺めて quarantine(req) なら drop
+            if msg_type == "EVENT" {
+                let _ = (ctx, client_ip);
+            }
+            None
         }
     }
 }
 
-/// IPアドレスがBANされているか確認
-async fn is_ip_banned(pool: &SqlitePool, ip: &str) -> anyhow::Result<bool> {
-    let row: Option<(i64,)> =
-        sqlx::query_as("SELECT banned FROM ip_access_control WHERE ip_address = ?")
-            .bind(ip)
-            .fetch_optional(pool)
-            .await?;
-    Ok(row.map(|(banned,)| banned == 1).unwrap_or(false))
-}
-
-fn parse_eose_autoclose_kinds_from_env() -> std::collections::HashSet<i64> {
-    let raw = std::env::var("EOSE_AUTOCLOSE_KINDS").unwrap_or_else(|_| "0".to_string());
-    raw.split(',')
-        .filter_map(|s| s.trim().parse::<i64>().ok())
-        .collect()
+fn text_sub_id(text: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let arr = v.as_array()?;
+    arr.get(1)?.as_str().map(|s| s.to_string())
 }
 
 fn should_autoclose_on_eose(req_text: &str, target_kinds: &std::collections::HashSet<i64>) -> bool {
@@ -485,30 +573,39 @@ fn should_autoclose_on_eose(req_text: &str, target_kinds: &std::collections::Has
     let Ok(v) = serde_json::from_str::<serde_json::Value>(req_text) else {
         return false;
     };
-    let Some(arr) = v.as_array() else {
-        return false;
-    };
+    let Some(arr) = v.as_array() else { return false };
     if arr.first().and_then(|x| x.as_str()) != Some("REQ") {
         return false;
     }
-    let filter_values: Vec<&serde_json::Value> = arr.iter().skip(2).collect();
-    if filter_values.is_empty() {
+    let filters: Vec<&serde_json::Value> = arr.iter().skip(2).collect();
+    if filters.is_empty() {
         return false;
     }
-    filter_values.into_iter().all(|filter| {
-        let Some(obj) = filter.as_object() else {
-            return false;
-        };
-        let Some(kinds_val) = obj.get("kinds") else {
-            return false;
-        };
-        let Some(kinds) = kinds_val.as_array() else {
-            return false;
-        };
+    filters.into_iter().all(|filter| {
+        let Some(obj) = filter.as_object() else { return false };
+        let Some(kinds_val) = obj.get("kinds") else { return false };
+        let Some(kinds) = kinds_val.as_array() else { return false };
         !kinds.is_empty()
             && kinds
                 .iter()
                 .filter_map(|k| k.as_i64())
                 .all(|k| target_kinds.contains(&k))
     })
+}
+
+/// 互換 API: 旧シグネチャ。新規呼び出しは `proxy_ws_with_ctx` を使うこと。
+pub async fn proxy_ws(_client_ws: WebSocket, _backend_url: String) -> anyhow::Result<()> {
+    anyhow::bail!("proxy_ws is deprecated; use proxy_ws_with_ctx")
+}
+
+/// レガシー互換: 旧 `proxy_ws_with_pool` のシグネチャを残しておく。
+/// 新しい呼び出し元には `proxy_ws_with_ctx` を使うことを推奨。
+#[deprecated(note = "use proxy_ws_with_ctx")]
+pub async fn proxy_ws_with_pool(
+    _client_ws: WebSocket,
+    _backend_url: String,
+    _pool: Option<SqlitePool>,
+    _client_ip: Option<String>,
+) -> anyhow::Result<()> {
+    anyhow::bail!("proxy_ws_with_pool is removed; use proxy_ws_with_ctx")
 }

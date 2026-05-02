@@ -1,10 +1,16 @@
+pub mod access;
 pub mod api;
 pub mod auth;
+pub mod auth_throttle;
+pub mod config;
 pub mod db;
+pub mod event_counter;
+pub mod event_stream;
 pub mod filter;
+pub mod log_cleaner;
+pub mod metrics;
 pub mod nostr;
 pub mod parser;
 pub mod proxy;
 pub mod relay_pool;
-pub mod metrics;
-
+pub mod session_registry;
