@@ -1,28 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Card, KpiTile, StatusDot, Button, Icon } from '../console/primitives';
+import { useEffect, useMemo, useState } from 'react';
+import { Card, KpiTile, StatusDot, Button } from '../console/primitives';
+import { fetchPublicStatus, type PublicStatus } from './api';
 
-interface PublicStats {
-  uptime: string;
-  connNow: string;
-  evtPerMin: string;
-  rejectRate: string;
-  poolSize: number;
-  recentLog: { ts: string; level: 'live' | 'warn' | 'alert'; text: string }[];
-}
+const POLL_INTERVAL_MS = 10_000;
 
-const FALLBACK: PublicStats = {
-  uptime:    '99.97%',
-  connNow:   '1284',
-  evtPerMin: '9432',
-  rejectRate:'2.1%',
-  poolSize:  4,
-  recentLog: [
-    { ts: '12:30', level: 'live',  text: 'reconnect relay.damus.io ok' },
-    { ts: '11:42', level: 'warn',  text: 'degraded nos.lol latency 720ms' },
-    { ts: '09:11', level: 'alert', text: 'down relay.snort.social' },
-    { ts: '07:00', level: 'live',  text: 'cold start pool=4 ok' },
-  ],
-};
+type StatusLevel = 'operational' | 'degraded' | 'down';
 
 function useEndpoint() {
   if (typeof window === 'undefined') return 'wss://example.invalid';
@@ -30,20 +12,131 @@ function useEndpoint() {
   return `${proto}//${window.location.host}`;
 }
 
+/** Uptime 秒を `4d 12h 03m` のように人が読む形に。 */
+function formatUptime(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h.toString().padStart(2, '0')}h ${m.toString().padStart(2, '0')}m`;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
+  return `${m}m`;
+}
+
+/** ISO8601 → "HH:MM" 表示 (失敗時は空文字)。 */
+function shortTime(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const d = new Date(t);
+  return `${d.getHours().toString().padStart(2, '0')}:${d
+    .getMinutes()
+    .toString()
+    .padStart(2, '0')}`;
+}
+
+function levelFromEventType(eventType: string): 'live' | 'warn' | 'alert' {
+  const lc = eventType.toLowerCase();
+  if (lc.includes('error') || lc.includes('fail') || lc.includes('disconn')) return 'alert';
+  if (lc.includes('warn') || lc.includes('degrad') || lc.includes('reconnect')) return 'warn';
+  return 'live';
+}
+
+function sumLastN(arr: number[], n: number): number {
+  if (!arr || arr.length === 0) return 0;
+  const start = Math.max(0, arr.length - n);
+  let sum = 0;
+  for (let i = start; i < arr.length; i++) sum += arr[i] ?? 0;
+  return sum;
+}
+
+interface DerivedStats {
+  uptime: string;
+  connNow: string;
+  evtPerMin: string;
+  rejectRate: string;
+  poolSize: number;
+  recentLog: { ts: string; level: 'live' | 'warn' | 'alert'; text: string; key: string }[];
+  statusLevel: StatusLevel;
+  lastUpdated: string;
+}
+
+function derive(api: PublicStatus): DerivedStats {
+  const window = 5;
+  const posted = sumLastN(api.events.posted_1h, window);
+  const delivered = sumLastN(api.events.delivered_1h, window);
+  const rejected = sumLastN(api.events.rejected_1h, window);
+  const total = posted + delivered + rejected;
+  const rejectRate = total === 0 ? 0 : (rejected / total) * 100;
+
+  return {
+    uptime: formatUptime(api.uptime_sec),
+    connNow: api.connections_active.toLocaleString(),
+    evtPerMin: Math.round((posted + delivered) / window).toLocaleString(),
+    rejectRate: `${rejectRate.toFixed(1)}%`,
+    poolSize: api.backends.filter((b) => b.status !== 'disabled').length,
+    recentLog: api.incidents.slice(0, 5).map((i, idx) => ({
+      ts: shortTime(i.ts),
+      level: levelFromEventType(i.event_type),
+      text: `${i.event_type}  ${i.summary}`.trim(),
+      key: `${i.ts}-${idx}`,
+    })),
+    statusLevel: (api.status as StatusLevel) ?? 'operational',
+    lastUpdated: new Date(api.generated_at).toLocaleTimeString(),
+  };
+}
+
+interface LoadState {
+  status: 'loading' | 'ok' | 'error';
+  data?: PublicStatus;
+  error?: string;
+  loadedAt?: number;
+}
+
 /**
  * PROFILER LP — 公開トップ。
- * - リレーの自己紹介・KPI・特徴・接続先を地味に提示
- * - 統計値は将来 GET /api/landing-stats 等で動的化する想定。今は安全な fallback を表示する。
+ * - リレーの自己紹介・KPI・特徴・接続先を提示
+ * - `/api/public/status` を 10s 間隔でポーリングして実データ表示
+ * - API 取得失敗時は最後に取れた値を表示し続け、ヘッダにエラーバッジを出す
  */
 export function LandingPage() {
   const endpoint = useEndpoint();
-  const [stats] = useState<PublicStats>(FALLBACK);
+  const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    let alive = true;
+    const ctl = new AbortController();
+
+    const tick = async () => {
+      try {
+        const data = await fetchPublicStatus(ctl.signal);
+        if (!alive) return;
+        setLoad({ status: 'ok', data, loadedAt: Date.now() });
+      } catch (e) {
+        if (!alive) return;
+        if ((e as Error).name === 'AbortError') return;
+        setLoad((prev) => ({
+          status: 'error',
+          data: prev.data,
+          error: (e as Error).message,
+          loadedAt: prev.loadedAt,
+        }));
+      }
+    };
+
+    tick();
+    const id = window.setInterval(tick, POLL_INTERVAL_MS);
+    return () => {
+      alive = false;
+      ctl.abort();
+      window.clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
+    const t = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(t);
   }, [copied]);
 
   const onCopy = async () => {
@@ -51,15 +144,41 @@ export function LandingPage() {
       await navigator.clipboard.writeText(endpoint);
       setCopied(true);
     } catch {
-      // クリップボードが使えなくても LP は動く必要があるので無視
+      // クリップボード不可でも LP は成立する必要があるため握り潰す
     }
   };
+
+  const stats = useMemo(() => (load.data ? derive(load.data) : null), [load.data]);
+
+  const statusBadge = (() => {
+    if (load.status === 'loading' && !stats) {
+      return <span className="crt-hud-tag">profiler uplink — loading</span>;
+    }
+    if (!stats) {
+      return <span className="crt-hud-tag crt-hud-tag--alert">uplink unavailable</span>;
+    }
+    if (stats.statusLevel === 'down') {
+      return <span className="crt-hud-tag crt-hud-tag--alert">uplink down</span>;
+    }
+    if (stats.statusLevel === 'degraded') {
+      return <span className="crt-hud-tag crt-hud-tag--warn">uplink degraded</span>;
+    }
+    return <span className="crt-hud-tag crt-hud-tag--accent">uplink operational</span>;
+  })();
 
   return (
     <div className="lp-page">
       <div className="lp-page__content">
         <header className="lp-hero">
-          <span className="crt-hud-tag crt-hud-tag--accent">profiler uplink</span>
+          <div className="lp-hero__statusrow">
+            {statusBadge}
+            {load.status === 'error' && stats && (
+              <span className="crt-hud-tag crt-hud-tag--warn">stale — last update {stats.lastUpdated}</span>
+            )}
+            {stats && load.status === 'ok' && (
+              <span className="crt-hud-tag">refreshed {stats.lastUpdated}</span>
+            )}
+          </div>
           <h1 className="lp-hero__title">
             Nostr Proxy Relay <strong>— 前段フィルタとしての wss://</strong>
           </h1>
@@ -76,10 +195,29 @@ export function LandingPage() {
         </header>
 
         <section className="lp-kpis" aria-label="public stats">
-          <KpiTile label="UPTIME"        value={stats.uptime}    variant="ok" />
-          <KpiTile label="CONN NOW"      value={stats.connNow}   delta="last 5m" />
-          <KpiTile label="EVENTS / MIN"  value={stats.evtPerMin} delta={<><Icon name="arrow-up" size={12} /> +203</>} />
-          <KpiTile label="REJECT RATE"   value={stats.rejectRate} variant="warn" />
+          <KpiTile
+            label="UPTIME"
+            value={stats ? stats.uptime : '—'}
+            variant={stats?.statusLevel === 'down' ? 'alert' : 'ok'}
+          />
+          <KpiTile
+            label="CONN NOW"
+            value={stats ? stats.connNow : '—'}
+            delta={stats ? 'last 10s' : ''}
+          />
+          <KpiTile
+            label="EVENTS / MIN"
+            value={stats ? stats.evtPerMin : '—'}
+            delta={stats ? 'avg last 5m' : ''}
+          />
+          <KpiTile
+            label="REJECT RATE"
+            value={stats ? stats.rejectRate : '—'}
+            variant={
+              stats && parseFloat(stats.rejectRate) > 20 ? 'alert' :
+              stats && parseFloat(stats.rejectRate) > 5 ? 'warn' : 'ok'
+            }
+          />
         </section>
 
         <section className="lp-features">
@@ -89,7 +227,12 @@ export function LandingPage() {
               REQ も POST も同一ポリシーで判定。
             </p>
           </Card>
-          <Card title={<>POOL <span className="crt-hud-tag">{stats.poolSize} nodes</span></>} bracket>
+          <Card
+            title={
+              <>POOL <span className="crt-hud-tag">{stats ? `${stats.poolSize} nodes` : '— nodes'}</span></>
+            }
+            bracket
+          >
             <p style={{ margin: 0, color: 'var(--crt-fg)' }}>
               複数 backend にフェイルオーバー。fan-out で 1 wss に束ねて配信。
             </p>
@@ -101,15 +244,17 @@ export function LandingPage() {
           </Card>
         </section>
 
-        <section>
-          <Card title={<>STATUS LOG <span className="crt-hud-tag">last 6h</span></>}>
-            <div className="lp-statuslog">
-              {stats.recentLog.map((r, i) => (
-                <StatusDot key={i} variant={r.level}>{r.ts}  {r.text}</StatusDot>
-              ))}
-            </div>
-          </Card>
-        </section>
+        {stats && stats.recentLog.length > 0 ? (
+          <section>
+            <Card title={<>STATUS LOG <span className="crt-hud-tag">recent {stats.recentLog.length}</span></>}>
+              <div className="lp-statuslog">
+                {stats.recentLog.map((r) => (
+                  <StatusDot key={r.key} variant={r.level}>{r.ts}  {r.text}</StatusDot>
+                ))}
+              </div>
+            </Card>
+          </section>
+        ) : null}
 
         <footer className="lp-footer">
           <span>{'>>'} Proxy Nostr Relay (PROFILER)</span>

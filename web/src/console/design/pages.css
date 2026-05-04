@@ -1,0 +1,251 @@
+/* ──────────────────────────────────────────────────────────────────
+   Page-level layouts and form/list helpers (Phase 2.x)
+
+   全部 `.crt-app` 配下にだけ適用される前提。LP / 旧 admin に漏れないよう
+   ConsoleApp が読み込む base.css 経由で取り込む (design/base.css 末尾)。
+   ────────────────────────────────────────────────────────────────── */
+
+/* ───────── 入力共通 ───────── */
+.crt-app .crt-input {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--crt-bg);
+  border: 1px solid var(--crt-border-strong);
+  color: var(--crt-fg);
+  font-family: var(--crt-font-mono);
+  font-size: 13px;
+}
+.crt-app .crt-input:focus { border-color: var(--crt-accent); outline: none; }
+.crt-app .crt-input--narrow { width: 90px; }
+.crt-app textarea.crt-input { font-family: var(--crt-font-mono); resize: vertical; }
+.crt-app select.crt-input { cursor: pointer; }
+
+/* ───────── ラベル付きフォーム ───────── */
+.crt-app .form-grid {
+  display: grid;
+  gap: 12px;
+}
+.crt-app .form-grid label {
+  display: grid;
+  gap: 4px;
+  font-family: var(--crt-font-display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--crt-fg-dim);
+  text-transform: uppercase;
+}
+.crt-app .form-grid label > span:first-child::before { content: '>> '; color: var(--crt-fg-dim); }
+.crt-app .form-grid__group {
+  border: 1px dashed var(--crt-border);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+.crt-app .form-grid__group > legend {
+  padding: 0 6px;
+  color: var(--crt-fg-dim);
+}
+
+/* radio cards (POST policy / backend strategy etc.) */
+.crt-app .radio-group {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.crt-app .radio-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--crt-border);
+  cursor: pointer;
+  font-family: var(--crt-font-mono);
+}
+.crt-app .radio-card input { margin-top: 4px; }
+.crt-app .radio-card strong {
+  display: block;
+  font-family: var(--crt-font-display);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--crt-fg);
+}
+.crt-app .radio-card span {
+  display: block;
+  font-size: 12px;
+  color: var(--crt-fg-dim);
+}
+.crt-app .radio-card--active {
+  border-color: var(--crt-accent);
+  background: rgba(196, 209, 64, 0.04);
+}
+
+/* preset duration row (Quarantine) */
+.crt-app .preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ───────── KV grid (System / Telemetry) ───────── */
+.crt-app .kv-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+.crt-app .kv-grid dt {
+  font-family: var(--crt-font-display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--crt-fg-dim);
+}
+.crt-app .kv-grid dd { margin: 0; font-family: var(--crt-font-mono); }
+.crt-app .muted { color: var(--crt-fg-dim); font-size: 12px; }
+.crt-app .json-preview {
+  background: var(--crt-bg);
+  border: 1px solid var(--crt-border);
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  font-family: var(--crt-font-mono);
+  font-size: 12px;
+  color: var(--crt-fg);
+}
+
+/* ───────── Dashboard grid ───────── */
+.crt-app .page-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 12px;
+}
+.crt-app .page-grid__kpis {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.crt-app .page-grid__main { grid-column: 1; }
+.crt-app .page-grid__side { grid-column: 2; }
+.crt-app .page-grid__half-l { grid-column: 1; }
+.crt-app .page-grid__half-r { grid-column: 2; }
+@media (max-width: 1023.98px) {
+  .crt-app .page-grid {
+    grid-template-columns: 1fr;
+  }
+  .crt-app .page-grid__kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crt-app .page-grid__main,
+  .crt-app .page-grid__side,
+  .crt-app .page-grid__half-l,
+  .crt-app .page-grid__half-r {
+    grid-column: 1;
+  }
+}
+
+/* ───────── shared list items (dashboard cards / npub etc.) ───────── */
+.crt-app .dash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-family: var(--crt-font-mono);
+  font-size: 12px;
+}
+.crt-app .dash-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px dotted var(--crt-border);
+  padding-bottom: 4px;
+}
+.crt-app .dash-list li:last-child { border-bottom: none; }
+.crt-app .dash-list__npub,
+.crt-app .dash-list__url,
+.crt-app .dash-list__reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.crt-app .dash-list__reason { flex: 1; color: var(--crt-fg-dim); }
+
+/* ───────── Live Events stream ───────── */
+.crt-app .live-stream {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 70vh;
+  overflow: auto;
+  font-family: var(--crt-font-mono);
+  font-size: 12px;
+}
+.crt-app .live-stream__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-bottom: 1px dotted var(--crt-border);
+}
+.crt-app .live-stream__ts   { color: var(--crt-fg-dim); white-space: nowrap; }
+.crt-app .live-stream__npub,
+.crt-app .live-stream__ip   { white-space: nowrap; }
+.crt-app .live-stream__reason {
+  flex: 1;
+  min-width: 0;
+  color: var(--crt-fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crt-app .live-stream__age  { color: var(--crt-fg-dim); }
+@media (max-width: 639.98px) {
+  .crt-app .live-stream__row {
+    flex-wrap: wrap;
+  }
+}
+
+/* ───────── Logs cell ───────── */
+.crt-app .logs-cell-mono { font-family: var(--crt-font-mono); }
+
+/* ───────── NIP-11 layout ───────── */
+.crt-app .nip11-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1023.98px) {
+  .crt-app .nip11-grid { grid-template-columns: 1fr; }
+}
+
+/* ───────── Sparkline (chart) ───────── */
+.crt-app .crt-spark { display: grid; gap: 6px; }
+.crt-app .crt-spark__legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--crt-font-mono);
+  font-size: 11px;
+  color: var(--crt-fg-dim);
+}
+.crt-app .crt-spark__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.crt-app .crt-spark__legend-item--right { margin-left: auto; }
+.crt-app .crt-spark__swatch {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  background: currentColor;
+}
+
+/* ───────── reduced-motion / overlay toggles ───────── */
+body.crt-overlay-off  .crt-overlay { display: none !important; }
+body.crt-animations-off .crt-app *,
+body.crt-animations-off .crt-app *::before,
+body.crt-animations-off .crt-app *::after {
+  animation: none !important;
+  transition: none !important;
+}

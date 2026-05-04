@@ -298,6 +298,9 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("InfluxDB metrics exporter started");
     }
 
+    // uptime 計算用に起動時刻を確定させる (system::info / public::status から参照)
+    let _ = api::system::init_started_at();
+
     let proxy_ctx = ProxyContext {
         pool: pool.clone(),
         settings: settings.clone(),
@@ -450,9 +453,40 @@ async fn main() -> anyhow::Result<()> {
             ),
         );
 
+    // 旧 admin UI (`/config/*`) は Phase 2.7 で完全に廃止。同等のパスへ 301 永続リダイレクトする。
+    // 例:
+    //   /config            → /console
+    //   /config/anything   → /console/anything
+    async fn legacy_config_redirect(
+        req: axum::http::Request<axum::body::Body>,
+    ) -> axum::response::Response {
+        let path = req.uri().path();
+        // `/config` ピッタリは `/console` へ。`/config/foo` は `/console/foo` へ。
+        let target = if let Some(rest) = path.strip_prefix("/config/") {
+            format!("/console/{rest}")
+        } else {
+            "/console".to_string()
+        };
+        let target = if let Some(q) = req.uri().query() {
+            format!("{target}?{q}")
+        } else {
+            target
+        };
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::MOVED_PERMANENTLY)
+            .header(axum::http::header::LOCATION, target)
+            .body(axum::body::Body::empty())
+            .unwrap()
+    }
+
+    let legacy_redirect = Router::new()
+        .route("/config", get(legacy_config_redirect))
+        .nest_service("/config/", tower::service_fn(|req| async {
+            Ok::<_, std::convert::Infallible>(legacy_config_redirect(req).await)
+        }));
+
     let protected = Router::new()
-        .nest_service("/config", tower::service_fn(spa_static_handler))
-        // /console/* は新 SPA（Phase 2 で本実装）。BasicAuth 配下で配信。
+        // /console/* は新 SPA。BasicAuth 配下で配信。
         .nest_service("/console", tower::service_fn(spa_static_handler))
         .layer(axum::middleware::from_fn_with_state(
             pool.clone(),
@@ -468,9 +502,15 @@ async fn main() -> anyhow::Result<()> {
         event_bus: event_bus.clone(),
     };
 
+    // 公開 API（認証なし）。LP の status 表示など。BasicAuth の `/api` の前に
+    // nest しないと auth に飲まれるので、必ず先に置く。
+    let public_api_state = api::public::PublicCacheState::new(api_state.clone());
+
     let app = Router::new()
         .merge(public_static)
+        .merge(legacy_redirect)
         .merge(protected)
+        .nest("/api/public", api::public::router(public_api_state))
         .nest("/api", api::routes::router(api_state, auth_throttle.clone()))
         .nest("/docs", docs::router())
         .route(

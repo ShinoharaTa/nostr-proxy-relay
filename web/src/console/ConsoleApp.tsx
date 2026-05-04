@@ -1,32 +1,75 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import './design/base.css';
 import './primitives/primitives.css';
 import './shell/shell.css';
 import { AppShell } from './shell/AppShell';
 import { ToastHost } from './primitives/Toast';
 import { Showroom } from './pages/Showroom';
-import { Stub } from './pages/Stub';
+import { Dashboard } from './pages/Dashboard';
+import { LiveEvents } from './pages/LiveEvents';
+import { LogsPage } from './pages/Logs';
+import { BackendRelays } from './pages/BackendRelays';
+import { Nip11Editor } from './pages/Nip11Editor';
+import { PostPolicyPage } from './pages/PostPolicy';
+import { NpubPage } from './pages/Npub';
+import { IpAclPage } from './pages/IpAcl';
+import { QuarantinePage } from './pages/Quarantine';
+import { KindBlocklistPage } from './pages/KindBlocklist';
+import { DslRulesPage } from './pages/DslRules';
+import { QuickBanPage } from './pages/QuickBan';
+import { TelemetryPage } from './pages/Telemetry';
+import { SystemPage } from './pages/SystemPage';
 
+/**
+ * 新管理コンソール (Phase 2)。
+ * - basename="/console" の `<BrowserRouter>` 配下で動作
+ * - URL マップは docs/ui_redesign_ja.md §4 を厳守
+ * - 命名は §3.3 命名統一表に準拠
+ */
 export function ConsoleApp() {
   return (
     <ToastHost>
       <AppShell>
         <Routes>
-          {/* Phase 2.0 では各画面はスタブ。Phase 2.x で順次本実装に置換する。 */}
-          <Route path="/"            element={<Stub title="DASHBOARD"   description="OPS ダッシュボード。" />} />
-          <Route path="/live"        element={<Stub title="LIVE EVENTS" description="SSE ライブストリーム。" />} />
-          <Route path="/relays"      element={<Stub title="RELAY POOL" />} />
-          <Route path="/post-pol"    element={<Stub title="POST POLICY" />} />
-          <Route path="/ip-acl"      element={<Stub title="IP ACL" description="IP 制限。" />} />
-          <Route path="/npub"        element={<Stub title="NPUB SAFELIST" />} />
-          <Route path="/quarantine"  element={<Stub title="QUARANTINE" />} />
-          <Route path="/simple-ban"  element={<Stub title="SIMPLE BAN" />} />
-          <Route path="/dsl"         element={<Stub title="DSL FILTERS" />} />
-          <Route path="/logs"        element={<Stub title="LOGS" />} />
-          <Route path="/settings"    element={<Stub title="SETTINGS" />} />
+          {/* OVERVIEW */}
+          <Route path="/"     element={<Dashboard />} />
+          <Route path="/live" element={<LiveEvents />} />
+          <Route path="/logs" element={<LogsPage />} />
 
-          {/* プリミティブショールーム */}
-          <Route path="/__dev"       element={<Showroom />} />
+          {/* BACKEND */}
+          <Route path="/backend/relays" element={<BackendRelays />} />
+          <Route path="/backend/nip11"  element={<Nip11Editor />} />
+
+          {/* ACCESS CONTROL */}
+          <Route path="/access/post-policy" element={<PostPolicyPage />} />
+          <Route path="/access/npub"        element={<NpubPage />} />
+          <Route path="/access/ip"          element={<IpAclPage />} />
+          <Route path="/access/quarantine"  element={<QuarantinePage />} />
+
+          {/* FILTERING */}
+          <Route path="/filter/kind"      element={<KindBlocklistPage />} />
+          <Route path="/filter/dsl"       element={<DslRulesPage />} />
+          <Route path="/filter/quick-ban" element={<QuickBanPage />} />
+
+          {/* OPERATIONS */}
+          <Route path="/operations/telemetry" element={<TelemetryPage />} />
+          <Route path="/operations/system"    element={<SystemPage />} />
+
+          {/* プリミティブショールーム (開発用) */}
+          <Route path="/__dev" element={<Showroom />} />
+
+          {/* 旧 URL の互換用 fallback */}
+          <Route path="/dashboard"  element={<Navigate to="/" replace />} />
+          <Route path="/relays"     element={<Navigate to="/backend/relays" replace />} />
+          <Route path="/post-pol"   element={<Navigate to="/access/post-policy" replace />} />
+          <Route path="/ip-acl"     element={<Navigate to="/access/ip" replace />} />
+          <Route path="/npub"       element={<Navigate to="/access/npub" replace />} />
+          <Route path="/quarantine" element={<Navigate to="/access/quarantine" replace />} />
+          <Route path="/simple-ban" element={<Navigate to="/filter/quick-ban" replace />} />
+          <Route path="/dsl"        element={<Navigate to="/filter/dsl" replace />} />
+          <Route path="/settings"   element={<Navigate to="/operations/system" replace />} />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
     </ToastHost>

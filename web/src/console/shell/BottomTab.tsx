@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../icons/Icon';
-import { NAV_GROUPS } from './navConfig';
+import { NAV_GROUPS, isGroupActive } from './navConfig';
 
 export function BottomTab() {
   const nav = useNavigate();
@@ -10,7 +10,7 @@ export function BottomTab() {
     <nav className="crt-bottomtab crt-lg-down" aria-label="bottom">
       {NAV_GROUPS.map((g) => {
         const first = g.items[0];
-        const active = g.items.some((it) => loc.pathname === it.to || (it.to !== '/' && loc.pathname.startsWith(it.to)));
+        const active = isGroupActive(g, loc.pathname);
         return (
           <button
             key={g.id}

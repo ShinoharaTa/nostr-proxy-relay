@@ -1,8 +1,11 @@
 # UI 全面再設計 — 計画書 (Phase 2)
 
-> 採用テーマ **CRT_OPS** を前提に、Web UI（LP・管理コンソール）を**ゼロベースで作り直す**ための仕様と実装計画。
+> 採用テーマ **PROFILER** (Watch Dogs 1 ctOS) を前提に、Web UI（LP・管理コンソール）を
+> **ゼロベースで作り直した**仕様と実装計画。
 >
-> 既存 [`web/src/`](../web/src) の `App.tsx` / `components/` には引っ張られず、新ディレクトリで実装し、最後に旧ルート (`/config`) を撤去する。テーマ仕様は [`ui_theme_ja`](ui_theme_ja) を参照。
+> 旧 `web/src/App.tsx` / `web/src/components/*` は Phase 2.7 で完全に削除済み。
+> 旧 URL `/config/*` は `/console/*` への 301 永続リダイレクトで吸収する。
+> テーマ仕様は [`ui_theme_ja`](ui_theme_ja) を参照。
 
 ---
 
@@ -10,7 +13,7 @@
 
 | 項目 | 決定 |
 |---|---|
-| 採用テーマ | **CRT_OPS** ([テーマ仕様](ui_theme_ja)) |
+| 採用テーマ | **PROFILER** (Watch Dogs 1 ctOS) ([テーマ仕様](ui_theme_ja)) |
 | 対応端末 | **PC / タブレット / スマホ の full parity** — 全機能を全端末で操作可能 |
 | 認証 | **BasicAuth のまま継続** — UI 側にログイン画面は実装しない |
 | LP の Status | **rich** — 接続数・uptime・1h 配信グラフ・バックエンド一覧・直近インシデント |
@@ -129,9 +132,12 @@ OPERATIONS            ← 運用補助
 /console/operations/telemetry    Telemetry
 /console/operations/system       System
 /api/...                         API（既存維持）
-/api/public/status               LP 用ステータス（新設、認証不要）
+/api/public/status               LP 用ステータス（認証不要、1s キャッシュ）
+/api/system/info                 サーバ情報・auth_throttle・retention・disk (要 BasicAuth)
+/api/telemetry/status            InfluxDB 設定の表示 (要 BasicAuth)
+/api/telemetry/test              InfluxDB に test write を 1 行送る (要 BasicAuth)
 /docs/...                        公開ドキュメント（既存維持）
-/config/*                        旧 SPA、Phase 2.7 で → 同等 /console/* へ 301
+/config/*                        Phase 2.7 で → 同等 /console/* に 301 永続リダイレクト
 ```
 
 ---
@@ -367,12 +373,13 @@ PC のテーブル UI をそのまま縮小すると操作不能になるので�
 - System（auth_throttle 状況・retention・disk）
 - 設定で「アニメーション低減」「CRT オーバーレイ OFF」をトグル可能に
 
-### Phase 2.6 完了時 — 旧 `/config` 単一切替
-- 全画面が `/console` に移行済みを確認
-- `/config/*` → `/console/*` の **301 永続リダイレクト**を Rust 側で実装
-- `web/src/App.tsx` と既存 `web/src/components/*` を削除
+### Phase 2.7 — 旧 `/config` 単一切替（実施済み）
+- 全画面が `/console` に移行済み
+- `/config/*` → `/console/*` の **301 永続リダイレクト**を Rust 側で実装 (`src/main.rs` `legacy_config_redirect`)
+- `web/src/App.tsx` `web/src/App.css` `web/src/components/*` `web/src/api.ts` `web/src/types.ts` を削除
+- `main.tsx` の `/config` 分岐を削除し、basename は `/console` か `/` のどちらかに
+- `vite.config.ts` の PWA scope を `/config/` → `/console/` に変更
 - 同一リリースで切替（並走期間なし）
-- 移行案内をリリースノートに記載
 
 ---
 

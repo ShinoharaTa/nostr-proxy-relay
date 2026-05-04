@@ -93,6 +93,7 @@ pub fn router(state: ApiState, throttle: AuthThrottle) -> Router {
         .route("/translate/dsl-to-simple", post(translate_dsl_to_simple))
         .route("/translate/dry-run", post(dry_run_filter))
         .route("/events/stream", get(sse_event_stream))
+        .merge(super::system::routes())
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
             auth_state,

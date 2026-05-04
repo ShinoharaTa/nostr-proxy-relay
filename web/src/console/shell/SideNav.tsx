@@ -1,6 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Icon } from '../icons/Icon';
-import { NAV_GROUPS } from './navConfig';
+import { NAV_GROUPS, isItemActive } from './navConfig';
 
 export function SideNav() {
   const loc = useLocation();
@@ -18,7 +18,7 @@ export function SideNav() {
           </div>
           <ul className="crt-side__items">
             {g.items.map((it) => {
-              const active = loc.pathname === it.to || (it.to !== '/' && loc.pathname.startsWith(it.to));
+              const active = isItemActive(it.to, loc.pathname);
               return (
                 <li key={it.id}>
                   <Link

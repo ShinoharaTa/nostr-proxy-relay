@@ -29,6 +29,14 @@
   padding-bottom: 24px;
   border-bottom: 1px solid var(--crt-border);
 }
+.lp-hero__statusrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  font-family: var(--crt-font-mono);
+  font-size: 11px;
+}
 .lp-hero__title {
   margin: 0;
   font-family: var(--crt-font-display);

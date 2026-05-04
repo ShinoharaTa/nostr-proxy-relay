@@ -5,6 +5,7 @@
 @import './tokens.css';
 @import './breakpoints.css';
 @import './animations.css';
+@import './pages.css';
 
 html, body {
   margin: 0;
