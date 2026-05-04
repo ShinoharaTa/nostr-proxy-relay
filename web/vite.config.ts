@@ -4,7 +4,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/config/',
+  // SPA は LP (`/`)・新コンソール (`/console`, BasicAuth)・旧 admin (`/config`, BasicAuth)
+  // の 3 マウントポイントから同じバンドルを共有する。どこから読まれても assets を解決できるよう
+  // root-relative なパスにしておく。
+  base: '/',
   plugins: [
     react(),
     VitePWA({

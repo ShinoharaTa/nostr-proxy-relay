@@ -1,3 +1,8 @@
+/* Legacy admin UI (旧 /config) styles.
+   全部 `.app` 配下にスコープして、PROFILER LP (`/`) や 新 console (`/console`)
+   に漏れないようにする。旧 admin UI は `App.tsx` の <div className="app"> 配下にしか
+   描画されない。 */
+
 :root {
   --bg-body: #111217;
   --bg-panel: #181b1f;
@@ -21,30 +26,31 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-body {
+/* ===== Scope root ===== */
+.app {
   font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-body);
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.5;
   min-height: 100vh;
-}
-
-.app {
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
   width: 100%;
 }
 
+.app * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
 /* Header */
-header {
+.app header {
   background: linear-gradient(180deg, #1a1d21 0%, #111217 100%);
   border-bottom: 1px solid var(--border);
   padding: 0 1.5rem;
@@ -57,7 +63,7 @@ header {
   z-index: 100;
 }
 
-header h1 {
+.app header h1 {
   font-size: 18px;
   font-weight: 500;
   color: var(--text-primary);
@@ -66,7 +72,7 @@ header h1 {
   gap: 0.75rem;
 }
 
-header h1::before {
+.app header h1::before {
   content: '';
   width: 24px;
   height: 24px;
@@ -74,14 +80,14 @@ header h1::before {
   border-radius: 4px;
 }
 
-.app-version {
+.app .app-version {
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 400;
 }
 
 /* Navigation Tabs */
-.tabs {
+.app .tabs {
   display: flex;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
@@ -91,7 +97,7 @@ header h1::before {
   width: 100%;
 }
 
-.tabs a {
+.app .tabs a {
   padding: 0.875rem 1.25rem;
   background: transparent;
   border: none;
@@ -106,25 +112,25 @@ header h1::before {
   text-decoration: none;
 }
 
-.tabs a:hover {
+.app .tabs a:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
 }
 
-.tabs a.active {
+.app .tabs a.active {
   color: var(--orange);
   border-bottom-color: var(--orange);
 }
 
 /* Main Content */
-main.main-container {
+.app main.main-container {
   flex: 1;
   overflow-y: auto;
   width: 100%;
   background: var(--bg-body);
 }
 
-.container-fluid {
+.app .container-fluid {
   width: 100%;
   max-width: 100%;
   padding: 1.5rem;
@@ -132,19 +138,15 @@ main.main-container {
 }
 
 @media (min-width: 1400px) {
-  .container-fluid {
-    padding: 1.5rem 2rem;
-  }
+  .app .container-fluid { padding: 1.5rem 2rem; }
 }
 
 @media (min-width: 1800px) {
-  .container-fluid {
-    padding: 1.5rem 3rem;
-  }
+  .app .container-fluid { padding: 1.5rem 3rem; }
 }
 
 /* Panels */
-.section {
+.app .section {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -154,17 +156,17 @@ main.main-container {
   display: block;
 }
 
-.section .table-container {
+.app .section .table-container {
   width: 100%;
   overflow-x: auto;
 }
 
-.section table {
+.app .section table {
   width: 100%;
   min-width: 100%;
 }
 
-.section h2 {
+.app .section h2 {
   background: var(--bg-panel-header);
   border-bottom: 1px solid var(--border);
   padding: 0.625rem 1rem;
@@ -176,13 +178,13 @@ main.main-container {
   gap: 0.5rem;
 }
 
-.section h2::before {
+.app .section h2::before {
   content: '●';
   font-size: 8px;
   color: var(--success);
 }
 
-.section h3 {
+.app .section h3 {
   padding: 0.75rem 1rem 0.5rem;
   font-size: 12px;
   font-weight: 600;
@@ -191,12 +193,12 @@ main.main-container {
   color: var(--text-muted);
 }
 
-.panel-content {
+.app .panel-content {
   padding: 1rem;
 }
 
 /* Stats Dashboard */
-.dashboard-grid {
+.app .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1rem;
@@ -204,7 +206,7 @@ main.main-container {
   width: 100%;
 }
 
-.stats-grid {
+.app .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
@@ -216,18 +218,16 @@ main.main-container {
   margin-bottom: 1.5rem;
 }
 
-.stat-card {
+.app .stat-card {
   padding: 1.25rem;
   text-align: center;
   border-right: 1px solid var(--border);
   position: relative;
 }
 
-.stat-card:last-child {
-  border-right: none;
-}
+.app .stat-card:last-child { border-right: none; }
 
-.stat-card::before {
+.app .stat-card::before {
   content: '';
   position: absolute;
   top: 0;
@@ -236,19 +236,19 @@ main.main-container {
   height: 3px;
 }
 
-.stat-card:nth-child(1)::before {
+.app .stat-card:nth-child(1)::before {
   background: linear-gradient(90deg, var(--info), var(--cyan));
 }
 
-.stat-card:nth-child(2)::before {
+.app .stat-card:nth-child(2)::before {
   background: linear-gradient(90deg, var(--success), #a3e635);
 }
 
-.stat-card:nth-child(3)::before {
+.app .stat-card:nth-child(3)::before {
   background: linear-gradient(90deg, var(--danger), var(--orange));
 }
 
-.stat-card h3 {
+.app .stat-card h3 {
   padding: 0;
   margin-bottom: 0.5rem;
   font-size: 11px;
@@ -257,7 +257,7 @@ main.main-container {
   color: var(--text-muted);
 }
 
-.stat-value {
+.app .stat-value {
   font-size: 32px;
   font-weight: 300;
   font-family: 'Roboto Mono', 'SF Mono', monospace;
@@ -265,12 +265,12 @@ main.main-container {
   line-height: 1;
 }
 
-.stat-card:nth-child(1) .stat-value { color: var(--info); }
-.stat-card:nth-child(2) .stat-value { color: var(--success); }
-.stat-card:nth-child(3) .stat-value { color: var(--danger); }
+.app .stat-card:nth-child(1) .stat-value { color: var(--info); }
+.app .stat-card:nth-child(2) .stat-value { color: var(--success); }
+.app .stat-card:nth-child(3) .stat-value { color: var(--danger); }
 
 /* Mini Stats Table */
-.mini-panel {
+.app .mini-panel {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -278,7 +278,7 @@ main.main-container {
   min-width: 0;
 }
 
-.mini-panel-header {
+.app .mini-panel-header {
   background: var(--bg-panel-header);
   padding: 0.5rem 0.75rem;
   font-size: 12px;
@@ -290,23 +290,23 @@ main.main-container {
   gap: 0.5rem;
 }
 
-.mini-panel-header .icon {
+.app .mini-panel-header .icon {
   width: 14px;
   height: 14px;
   border-radius: 2px;
 }
 
-.mini-panel-header .icon.blue { background: var(--info); }
-.mini-panel-header .icon.red { background: var(--danger); }
-.mini-panel-header .icon.green { background: var(--success); }
-.mini-panel-header .icon.purple { background: var(--purple); }
+.app .mini-panel-header .icon.blue { background: var(--info); }
+.app .mini-panel-header .icon.red { background: var(--danger); }
+.app .mini-panel-header .icon.green { background: var(--success); }
+.app .mini-panel-header .icon.purple { background: var(--purple); }
 
-.mini-list {
+.app .mini-list {
   max-height: 200px;
   overflow-y: auto;
 }
 
-.mini-list-item {
+.app .mini-list-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -315,15 +315,10 @@ main.main-container {
   font-size: 12px;
 }
 
-.mini-list-item:last-child {
-  border-bottom: none;
-}
+.app .mini-list-item:last-child { border-bottom: none; }
+.app .mini-list-item:hover { background: var(--bg-hover); }
 
-.mini-list-item:hover {
-  background: var(--bg-hover);
-}
-
-.mini-list-item .label {
+.app .mini-list-item .label {
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -332,7 +327,7 @@ main.main-container {
   min-width: 0;
 }
 
-.mini-list-item .value {
+.app .mini-list-item .value {
   font-family: 'Roboto Mono', monospace;
   font-weight: 500;
   padding: 0.125rem 0.5rem;
@@ -340,12 +335,12 @@ main.main-container {
   background: var(--bg-hover);
 }
 
-.mini-list-item .value.high { color: var(--danger); }
-.mini-list-item .value.medium { color: var(--warning); }
-.mini-list-item .value.low { color: var(--success); }
+.app .mini-list-item .value.high { color: var(--danger); }
+.app .mini-list-item .value.medium { color: var(--warning); }
+.app .mini-list-item .value.low { color: var(--success); }
 
 /* Forms */
-.form-row {
+.app .form-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -355,9 +350,9 @@ main.main-container {
   flex-wrap: wrap;
 }
 
-.form-row input[type="text"],
-.form-row input[type="number"],
-.form-row input:not([type]) {
+.app .form-row input[type="text"],
+.app .form-row input[type="number"],
+.app .form-row input:not([type]) {
   padding: 0.5rem 0.75rem;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -368,17 +363,17 @@ main.main-container {
   transition: border-color 0.15s;
 }
 
-.form-row input:focus {
+.app .form-row input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.form-row input.wide {
+.app .form-row input.wide {
   flex: 1;
   min-width: 200px;
 }
 
-.form-row label {
+.app .form-row label {
   display: flex;
   align-items: center;
   gap: 0.375rem;
@@ -390,16 +385,12 @@ main.main-container {
   transition: background 0.15s;
 }
 
-.form-row label:hover {
-  background: var(--bg-hover);
-}
+.app .form-row label:hover { background: var(--bg-hover); }
 
-.form-row span {
-  color: var(--text-muted);
-}
+.app .form-row span { color: var(--text-muted); }
 
 /* Buttons */
-button {
+.app button {
   padding: 0.5rem 1rem;
   background: var(--accent);
   border: none;
@@ -412,60 +403,45 @@ button {
   white-space: nowrap;
 }
 
-button:hover {
-  background: var(--accent-hover);
-}
+.app button:hover { background: var(--accent-hover); }
 
-.btn-small {
+.app .btn-small {
   padding: 0.25rem 0.625rem;
   font-size: 11px;
   margin-left: 0.25rem;
 }
 
-.btn-success {
-  background: var(--success);
-}
+.app .btn-success { background: var(--success); }
+.app .btn-success:hover { background: #8fd385; }
+.app .btn-danger { background: var(--danger); }
+.app .btn-danger:hover { background: #f56778; }
 
-.btn-success:hover {
-  background: #8fd385;
-}
-
-.btn-danger {
-  background: var(--danger);
-}
-
-.btn-danger:hover {
-  background: #f56778;
-}
-
-.btn-secondary {
+.app .btn-secondary {
   background: var(--bg-hover);
   border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
-.btn-secondary:hover {
+.app .btn-secondary:hover {
   background: var(--border);
   color: var(--text-primary);
 }
 
 /* Tables */
-.table-container {
-  overflow-x: auto;
-}
+.app .table-container { overflow-x: auto; }
 
-table {
+.app table {
   width: 100%;
   border-collapse: collapse;
 }
 
-th, td {
+.app th, .app td {
   padding: 0.625rem 0.75rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
 
-th {
+.app th {
   background: var(--bg-panel-header);
   font-size: 11px;
   font-weight: 600;
@@ -476,24 +452,16 @@ th {
   top: 0;
 }
 
-td {
+.app td {
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-tr:hover td {
-  background: var(--bg-hover);
-}
+.app tr:hover td { background: var(--bg-hover); }
+.app tr.banned td { background: rgba(242, 73, 92, 0.08); }
+.app tr.banned:hover td { background: rgba(242, 73, 92, 0.12); }
 
-tr.banned td {
-  background: rgba(242, 73, 92, 0.08);
-}
-
-tr.banned:hover td {
-  background: rgba(242, 73, 92, 0.12);
-}
-
-.truncate {
+.app .truncate {
   max-width: 400px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -503,7 +471,7 @@ tr.banned:hover td {
 }
 
 /* Status Badges */
-.badge {
+.app .badge {
   display: inline-block;
   padding: 0.125rem 0.5rem;
   border-radius: 2px;
@@ -513,29 +481,14 @@ tr.banned:hover td {
   letter-spacing: 0.5px;
 }
 
-.badge-success {
-  background: rgba(115, 191, 105, 0.15);
-  color: var(--success);
-}
-
-.badge-danger {
-  background: rgba(242, 73, 92, 0.15);
-  color: var(--danger);
-}
-
-.badge-warning {
-  background: rgba(242, 204, 12, 0.15);
-  color: var(--warning);
-}
-
-.badge-info {
-  background: rgba(87, 148, 242, 0.15);
-  color: var(--info);
-}
+.app .badge-success { background: rgba(115, 191, 105, 0.15); color: var(--success); }
+.app .badge-danger  { background: rgba(242, 73, 92, 0.15);  color: var(--danger); }
+.app .badge-warning { background: rgba(242, 204, 12, 0.15); color: var(--warning); }
+.app .badge-info    { background: rgba(87, 148, 242, 0.15); color: var(--info); }
 
 /* Checkbox & Radio */
-input[type="checkbox"],
-input[type="radio"] {
+.app input[type="checkbox"],
+.app input[type="radio"] {
   width: 14px;
   height: 14px;
   accent-color: var(--accent);
@@ -543,7 +496,7 @@ input[type="radio"] {
 }
 
 /* Toggle Switch */
-.toggle {
+.app .toggle {
   position: relative;
   width: 36px;
   height: 18px;
@@ -553,11 +506,9 @@ input[type="radio"] {
   transition: background 0.2s;
 }
 
-.toggle.active {
-  background: var(--success);
-}
+.app .toggle.active { background: var(--success); }
 
-.toggle::after {
+.app .toggle::after {
   content: '';
   position: absolute;
   top: 2px;
@@ -569,22 +520,18 @@ input[type="radio"] {
   transition: transform 0.2s;
 }
 
-.toggle.active::after {
-  transform: translateX(18px);
-}
+.app .toggle.active::after { transform: translateX(18px); }
 
 /* Tab Buttons in Form */
-.form-row button.active {
-  background: var(--accent);
-}
+.app .form-row button.active { background: var(--accent); }
 
-.form-row button:not(.active) {
+.app .form-row button:not(.active) {
   background: var(--bg-hover);
   color: var(--text-secondary);
 }
 
 /* Loading */
-.loading {
+.app .loading {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -592,7 +539,7 @@ input[type="radio"] {
   color: var(--text-muted);
 }
 
-.loading::before {
+.app .loading::before {
   content: '';
   width: 24px;
   height: 24px;
@@ -603,72 +550,42 @@ input[type="radio"] {
   margin-right: 0.75rem;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 /* Empty State */
-.empty-state {
+.app .empty-state {
   text-align: center;
   padding: 3rem;
   color: var(--text-muted);
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-panel);
-}
-
-::-webkit-scrollbar-thumb {
+/* Scrollbar (admin UI 内のみ) */
+.app ::-webkit-scrollbar { width: 8px; height: 8px; }
+.app ::-webkit-scrollbar-track { background: var(--bg-panel); }
+.app ::-webkit-scrollbar-thumb {
   background: var(--border-light);
   border-radius: 4px;
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
+.app ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 /* Responsive */
 @media (max-width: 768px) {
-  main {
-    padding: 0.5rem;
-  }
-
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .stat-card {
+  .app main { padding: 0.5rem; }
+  .app .stats-grid { grid-template-columns: 1fr; }
+  .app .stat-card {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
-
-  .stat-card:last-child {
-    border-bottom: none;
-  }
-
-  .form-row {
+  .app .stat-card:last-child { border-bottom: none; }
+  .app .form-row {
     flex-direction: column;
     align-items: stretch;
   }
-
-  .form-row input,
-  .form-row button {
-    width: 100%;
-  }
-
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
+  .app .form-row input,
+  .app .form-row button { width: 100%; }
+  .app .dashboard-grid { grid-template-columns: 1fr; }
 }
 
 /* Alert */
-.alert {
+.app .alert {
   padding: 1rem;
   border-radius: 4px;
   margin-bottom: 1rem;
@@ -677,26 +594,12 @@ input[type="radio"] {
   gap: 0.5rem;
 }
 
-.alert-warning {
-  background: rgba(242, 204, 12, 0.15);
-  border: 1px solid var(--warning);
-  color: var(--warning);
-}
-
-.alert-danger {
-  background: rgba(242, 73, 92, 0.15);
-  border: 1px solid var(--danger);
-  color: var(--danger);
-}
-
-.alert-success {
-  background: rgba(115, 191, 105, 0.15);
-  border: 1px solid var(--success);
-  color: var(--success);
-}
+.app .alert-warning { background: rgba(242, 204, 12, 0.15); border: 1px solid var(--warning); color: var(--warning); }
+.app .alert-danger  { background: rgba(242, 73, 92, 0.15);  border: 1px solid var(--danger);  color: var(--danger); }
+.app .alert-success { background: rgba(115, 191, 105, 0.15); border: 1px solid var(--success); color: var(--success); }
 
 /* Info Box */
-.info-box {
+.app .info-box {
   margin-top: 1.5rem;
   padding: 1rem;
   background: var(--bg-panel-header);
@@ -704,39 +607,35 @@ input[type="radio"] {
   border-left: 3px solid var(--info);
 }
 
-.info-box h4 {
+.app .info-box h4 {
   color: var(--info);
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
 }
 
-.info-box p {
+.app .info-box p {
   color: var(--text-secondary);
   font-size: 0.85rem;
   margin: 0;
 }
 
-/* Badge secondary */
-.badge-secondary {
-  background: var(--bg-hover);
-  color: var(--text-muted);
-}
+.app .badge-secondary { background: var(--bg-hover); color: var(--text-muted); }
 
-/* Form Grid (for NIP-11 settings) */
-.form-grid {
+/* Form Grid (NIP-11 settings) */
+.app .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1rem;
   padding: 1rem;
 }
 
-.form-group {
+.app .form-group {
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
 }
 
-.form-group label {
+.app .form-group label {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -745,8 +644,8 @@ input[type="radio"] {
   padding: 0;
 }
 
-.form-group input,
-.form-group textarea {
+.app .form-group input,
+.app .form-group textarea {
   padding: 0.625rem 0.75rem;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -756,26 +655,26 @@ input[type="radio"] {
   transition: border-color 0.15s;
 }
 
-.form-group input:focus,
-.form-group textarea:focus {
+.app .form-group input:focus,
+.app .form-group textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.form-group textarea {
+.app .form-group textarea {
   resize: vertical;
   min-height: 80px;
   font-family: inherit;
 }
 
-.form-group.checkbox-group {
+.app .form-group.checkbox-group {
   flex-direction: row;
   gap: 1.5rem;
   align-items: center;
   padding-top: 0.5rem;
 }
 
-.form-group.checkbox-group label {
+.app .form-group.checkbox-group label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -786,7 +685,7 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.form-actions {
+.app .form-actions {
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -795,26 +694,13 @@ input[type="radio"] {
   margin-top: 1rem;
 }
 
-.form-actions button {
-  padding: 0.625rem 1.5rem;
-}
+.app .form-actions button { padding: 0.625rem 1.5rem; }
+.app .form-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.form-actions button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+.app .success-msg { color: var(--success); font-size: 13px; }
+.app .error-msg   { color: var(--danger);  font-size: 13px; }
 
-.success-msg {
-  color: var(--success);
-  font-size: 13px;
-}
-
-.error-msg {
-  color: var(--danger);
-  font-size: 13px;
-}
-
-.section p code {
+.app .section p code {
   background: var(--bg-input);
   padding: 0.125rem 0.375rem;
   border-radius: 3px;
@@ -822,7 +708,7 @@ input[type="radio"] {
   color: var(--cyan);
 }
 
-.info-box code {
+.app .info-box code {
   background: var(--bg-input);
   padding: 0.125rem 0.375rem;
   border-radius: 3px;
@@ -830,12 +716,10 @@ input[type="radio"] {
   color: var(--cyan);
 }
 
-.info-box p + p {
-  margin-top: 0.5rem;
-}
+.app .info-box p + p { margin-top: 0.5rem; }
 
 /* NIP Checkbox Grid */
-.nip-checkbox-grid {
+.app .nip-checkbox-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 0.5rem;
@@ -847,7 +731,7 @@ input[type="radio"] {
   overflow-y: auto;
 }
 
-.nip-checkbox-item {
+.app .nip-checkbox-item {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
@@ -857,56 +741,52 @@ input[type="radio"] {
   transition: background 0.15s ease;
 }
 
-.nip-checkbox-item:hover {
-  background: var(--bg-hover);
-}
+.app .nip-checkbox-item:hover { background: var(--bg-hover); }
 
-.nip-checkbox-item input[type="checkbox"] {
+.app .nip-checkbox-item input[type="checkbox"] {
   margin-top: 2px;
   flex-shrink: 0;
   cursor: pointer;
 }
 
-.nip-label {
+.app .nip-label {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
   font-size: 13px;
 }
 
-.nip-label strong {
+.app .nip-label strong {
   color: var(--accent);
   font-weight: 600;
 }
 
-.nip-name {
+.app .nip-name {
   color: var(--text-secondary);
   font-size: 12px;
 }
 
-/* ========================================
-   Relay Status Bar (Uptime Kuma style)
-   ======================================== */
-.relay-status-bar {
+/* Relay Status Bar (Uptime Kuma style) */
+.app .relay-status-bar {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.375rem;
 }
 
-.relay-status-bar-title {
+.app .relay-status-bar-title {
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
 }
 
-.relay-status-bar-blocks {
+.app .relay-status-bar-blocks {
   display: flex;
   gap: 2px;
   align-items: center;
 }
 
-.relay-status-block {
+.app .relay-status-block {
   width: 6px;
   height: 18px;
   border-radius: 2px;
@@ -914,26 +794,13 @@ input[type="radio"] {
   cursor: default;
 }
 
-.relay-status-block:hover {
-  opacity: 0.8;
-}
+.app .relay-status-block:hover { opacity: 0.8; }
+.app .relay-status-block-up   { background: var(--success); }
+.app .relay-status-block-down { background: var(--danger); }
+.app .relay-status-block-none { background: var(--bg-hover); }
 
-.relay-status-block-up {
-  background: var(--success);
-}
-
-.relay-status-block-down {
-  background: var(--danger);
-}
-
-.relay-status-block-none {
-  background: var(--bg-hover);
-}
-
-/* ========================================
-   Modal (NIP-11 preview etc.)
-   ======================================== */
-.modal-overlay {
+/* Modal (NIP-11 preview etc.) */
+.app .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
@@ -943,7 +810,7 @@ input[type="radio"] {
   z-index: 200;
 }
 
-.modal {
+.app .modal {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -955,11 +822,9 @@ input[type="radio"] {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
-.modal h3 {
-  margin-bottom: 0.5rem;
-}
+.app .modal h3 { margin-bottom: 0.5rem; }
 
-.nip11-json {
+.app .nip11-json {
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -974,10 +839,8 @@ input[type="radio"] {
   word-break: break-all;
 }
 
-/* ========================================
-   Logs Filter Bar
-   ======================================== */
-.logs-filter-bar {
+/* Logs Filter Bar */
+.app .logs-filter-bar {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -989,7 +852,7 @@ input[type="radio"] {
   flex-wrap: wrap;
 }
 
-.logs-filter-bar input {
+.app .logs-filter-bar input {
   padding: 0.5rem 0.75rem;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -1000,15 +863,13 @@ input[type="radio"] {
   transition: border-color 0.15s;
 }
 
-.logs-filter-bar input:focus {
+.app .logs-filter-bar input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-/* ========================================
-   Stats Chart
-   ======================================== */
-.stats-chart-container {
+/* Stats Chart */
+.app .stats-chart-container {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1016,27 +877,21 @@ input[type="radio"] {
   height: 280px;
 }
 
-.stats-chart-wrapper {
-  width: 100%;
-}
+.app .stats-chart-wrapper { width: 100%; }
 
-/* ========================================
-   Button: Warning
-   ======================================== */
-.btn-warning {
+/* Button: Warning */
+.app .btn-warning {
   background: var(--warning);
   color: #111;
 }
 
-.btn-warning:hover {
+.app .btn-warning:hover {
   background: #e6c200;
   color: #111;
 }
 
-/* ========================================
-   Select element styling
-   ======================================== */
-.form-group select {
+/* Select element styling */
+.app .form-group select {
   padding: 0.625rem 0.75rem;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -1047,14 +902,10 @@ input[type="radio"] {
   cursor: pointer;
 }
 
-.form-group select:focus {
+.app .form-group select:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-/* ========================================
-   Toggle inside table cells
-   ======================================== */
-td .toggle {
-  display: inline-block;
-}
+/* Toggle inside table cells */
+.app td .toggle { display: inline-block; }

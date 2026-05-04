@@ -1,0 +1,43 @@
+import type { ReactNode } from 'react';
+import { Icon } from '../icons/Icon';
+import { StatusDot } from '../primitives/StatusDot';
+
+interface Props {
+  title?: ReactNode;
+  /** 中央に出すライブステータス */
+  liveLabel?: ReactNode;
+  /** 右側に置く操作群 */
+  right?: ReactNode;
+  /** モバイルでナビ起動時 */
+  onMenu?: () => void;
+}
+
+/** PROFILER (WD1 ctOS) Topbar
+ *  - スカル・グリッチ・ステンシルは無し
+ *  - "{>>} Profiler" 1 行のみ。HUD タグは犯罪分析報告風に控えめに */
+export function Topbar({ title = 'Profiler', liveLabel = 'Online', right, onMenu }: Props) {
+  return (
+    <header className="crt-shell__top crt-topbar">
+      <div className="crt-topbar__brand">
+        {onMenu && (
+          <button
+            className="crt-btn crt-btn--ghost crt-btn--icon crt-lg-down"
+            onClick={onMenu}
+            aria-label="open menu"
+          >
+            <Icon name="nav-filter" />
+          </button>
+        )}
+        <span className="crt-topbar__title">{title}</span>
+        <span className="crt-hud-tag crt-hide-sm">nostr proxy</span>
+      </div>
+
+      <div className="crt-topbar__center crt-hide-sm">
+        <StatusDot variant="live">{liveLabel}</StatusDot>
+        <span className="crt-hud-tag">uplink ok</span>
+      </div>
+
+      <div className="crt-topbar__right">{right}</div>
+    </header>
+  );
+}

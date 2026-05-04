@@ -1,0 +1,120 @@
+/* PROFILER LP — 公開 LP (https://<domain>/) のスタイル
+   仕様: docs/ui_theme_ja.md (PROFILER / WD1 ctOS)
+   - ベース層 (tokens/fonts/animations) と primitives を取り込む
+   - 全画面 CCTV 走査線を弱く (opacity 0.10)
+   - LP 専用のレイアウト枠 .lp-page を定義 */
+
+@import '../console/design/base.css';
+@import '../console/primitives/primitives.css';
+
+.lp-page {
+  position: relative;
+  min-height: 100vh;
+  background: var(--crt-bg);
+  color: var(--crt-fg);
+  font-family: var(--crt-font-mono);
+}
+
+.lp-page__content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(20px, 4vw, 48px) clamp(16px, 4vw, 32px) 64px;
+  display: grid;
+  gap: 32px;
+}
+
+.lp-hero {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--crt-border);
+}
+.lp-hero__title {
+  margin: 0;
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: clamp(28px, 4.5vw, 40px);
+  line-height: 1.15;
+  color: var(--crt-fg);
+}
+.lp-hero__title strong {
+  color: var(--crt-accent);
+  font-weight: 700;
+}
+.lp-hero__lead {
+  margin: 0;
+  color: var(--crt-fg-dim);
+  font-family: var(--crt-font-mono);
+  max-width: 720px;
+  line-height: 1.7;
+}
+.lp-hero__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lp-hero__endpoint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--crt-border-strong);
+  background: var(--crt-bg-soft);
+  font-family: var(--crt-font-mono);
+  color: var(--crt-accent);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.lp-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.lp-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.lp-statuslog {
+  display: grid;
+  gap: 6px;
+}
+
+.lp-footer {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--crt-border);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--crt-fg-dim);
+  font-family: var(--crt-font-mono);
+  font-size: 12px;
+}
+.lp-footer a { color: var(--crt-accent); text-decoration: none; }
+.lp-footer a:hover { text-decoration: underline; }
+
+/* 走査線 (LP でも CCTV 雰囲気を弱く) */
+.lp-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--crt-z-crt-overlay);
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.04) 0,
+      rgba(255,255,255,0.04) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  mix-blend-mode: overlay;
+  opacity: 0.10;
+  animation: crt-flicker 12s infinite;
+}

@@ -22,6 +22,11 @@ Proxy Nostr Relay の公開ドキュメント目次です。
 - [NIP-11 比較表](nip11-comparison) — 他リレー実装との対応比較
 - [NIP-11 推奨設定](nip11-recommendations) — 設定値の推奨
 
+### UI 全面再設計（Phase 2 計画）
+
+- [UI テーマ仕様書 — PROFILER](ui_theme_ja) — 採用テーマ (Watch Dogs 1 ctOS) のデザイントークン・装飾ルール
+- [UI 全面再設計 計画書](ui_redesign_ja) — IA 再構成・新 URL・レスポンシブ・実装フェーズ
+
 ---
 
 ## 概要

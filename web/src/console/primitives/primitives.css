@@ -1,0 +1,476 @@
+/* PROFILER プリミティブ共通スタイル (WATCH_DOGS 1 / ctOS / Profiler)
+   仕様: docs/ui_theme_ja.md §3 / §4
+
+   要点:
+   - 装飾を最小化（ステンシル / スカル / 警告テープ / 蛍光ピンク / グランジは無し）
+   - HUD タグは ">> ACTIVE" のような mono テキストプレフィックスのみ
+   - Card は 1px solid border 矩形。L 字コーナーマークは控えめ
+   - Button primary は鈍い黄緑、destructive は赤反転
+   - 本文・テーブルは IBM Plex Mono、KPI 値だけ VT323 (DOS 端末) で軽くレトロ感
+*/
+
+/* ===== Helper ===== */
+.crt-stencil {
+  /* PROFILER ではステンシルは使わない。後方互換のため空定義のみ */
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+}
+
+/* ">> ..." HUD インラインタグ (mono) */
+.crt-hud-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--crt-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--crt-fg-dim);
+  padding: 0 4px;
+}
+.crt-hud-tag::before {
+  content: '>>';
+  color: var(--crt-fg-dim);
+  margin-right: 2px;
+  font-weight: 700;
+}
+.crt-hud-tag--accent { color: var(--crt-accent); }
+.crt-hud-tag--accent::before { color: var(--crt-accent); }
+.crt-hud-tag--info   { color: var(--crt-info); }
+.crt-hud-tag--info::before   { color: var(--crt-info); }
+.crt-hud-tag--warn   { color: var(--crt-warn); }
+.crt-hud-tag--warn::before   { color: var(--crt-warn); }
+.crt-hud-tag--alert  { color: var(--crt-danger); }
+.crt-hud-tag--alert::before  { color: var(--crt-danger); }
+/* 後方互換: --pink を使うコードは accent と同義に倒す */
+.crt-hud-tag--pink   { color: var(--crt-accent); }
+.crt-hud-tag--pink::before   { color: var(--crt-accent); }
+
+/* ===== Button ===== */
+.crt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--crt-gap-sm);
+  padding: 6px 14px;
+  border: 1px solid var(--crt-border-strong);
+  background: transparent;
+  color: var(--crt-fg);
+  font-family: var(--crt-font-display);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 80ms linear, border-color 80ms linear, color 80ms linear;
+}
+.crt-btn:hover { border-color: var(--crt-accent); color: var(--crt-accent); }
+
+.crt-btn--primary {
+  background: var(--crt-accent);
+  color: var(--crt-bg);
+  border-color: var(--crt-accent);
+  font-weight: 700;
+  box-shadow: var(--crt-glow-primary);
+}
+.crt-btn--primary::before {
+  /* WD1 hideout マーカー由来の ">>" を CTA に */
+  content: '>>';
+  color: var(--crt-bg);
+  margin-right: 2px;
+  font-weight: 700;
+}
+.crt-btn--primary:hover {
+  background: var(--crt-accent-2);
+  border-color: var(--crt-accent-2);
+  color: var(--crt-bg);
+}
+
+.crt-btn--ghost {
+  background: transparent;
+  color: var(--crt-fg-dim);
+  border-color: var(--crt-border);
+}
+.crt-btn--ghost:hover { color: var(--crt-fg); border-color: var(--crt-border-strong); }
+
+.crt-btn--danger {
+  background: transparent;
+  color: var(--crt-danger);
+  border-color: var(--crt-danger);
+}
+.crt-btn--danger:hover {
+  background: var(--crt-danger);
+  color: var(--crt-bg);
+  border-color: var(--crt-danger);
+}
+
+.crt-btn--icon {
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  justify-content: center;
+}
+/* icon-only ボタンに ">>" は付けない */
+.crt-btn--icon::before { content: none !important; }
+
+.crt-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Card (犯罪分析報告風 / 装飾最小) ===== */
+.crt-card {
+  position: relative;
+  background: var(--crt-bg-card);
+  border: 1px solid var(--crt-border);
+  padding: var(--crt-gap-lg);
+  color: var(--crt-fg);
+}
+.crt-card__title {
+  margin: 0 0 var(--crt-gap-sm) 0;
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--crt-fg-dim);
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* L 字コーナーマーク (控えめ) — bracket prop が指定されたカードのみ */
+.crt-card--bracket {
+  border-color: var(--crt-border-strong);
+}
+.crt-card--bracket::before,
+.crt-card--bracket::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--crt-accent);
+  pointer-events: none;
+  opacity: 0.7;
+}
+.crt-card--bracket::before { top: -1px;    left: -1px;    border-right: none;  border-bottom: none; }
+.crt-card--bracket::after  { bottom: -1px; right: -1px;   border-left: none;   border-top: none; }
+
+.crt-card--destructive {
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: var(--crt-danger);
+}
+
+/* ===== KpiTile ===== */
+.crt-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--crt-gap-xs);
+  background: var(--crt-bg-card);
+  border: 1px solid var(--crt-border);
+  border-left: 3px solid var(--crt-accent);
+  padding: 12px 16px;
+  min-width: 0;
+}
+.crt-kpi__label {
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--crt-fg-dim);
+  text-transform: uppercase;
+}
+.crt-kpi__value {
+  font-family: var(--crt-font-numeric);
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 400;
+  line-height: 1.0;
+  color: var(--crt-fg);
+  text-shadow: var(--crt-text-glow);
+  letter-spacing: 0.02em;
+}
+.crt-kpi__delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--crt-font-mono);
+  font-size: 12px;
+  color: var(--crt-fg-dim);
+}
+.crt-kpi--ok    { border-left-color: var(--crt-info); }
+.crt-kpi--ok    .crt-kpi__value { text-shadow: 0 0 4px rgba(109, 196, 216, 0.25); color: var(--crt-info); }
+.crt-kpi--warn  { border-left-color: var(--crt-warn); }
+.crt-kpi--warn  .crt-kpi__value { color: var(--crt-warn); }
+.crt-kpi--alert { border-left-color: var(--crt-danger); }
+.crt-kpi--alert .crt-kpi__value { color: var(--crt-danger); }
+
+/* ===== StatusDot ===== */
+.crt-statusdot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--crt-gap-sm);
+  font-family: var(--crt-font-mono);
+  font-size: 12px;
+  color: var(--crt-fg);
+}
+.crt-statusdot__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--crt-radius-dot);
+  background: var(--crt-fg-dim);
+}
+.crt-statusdot--live  .crt-statusdot__dot { background: var(--crt-info);    box-shadow: 0 0 4px var(--crt-info);    animation: crt-pulse 1.6s ease-in-out infinite; }
+.crt-statusdot--warn  .crt-statusdot__dot { background: var(--crt-warn);    box-shadow: 0 0 4px var(--crt-warn); }
+.crt-statusdot--alert .crt-statusdot__dot { background: var(--crt-danger);  box-shadow: 0 0 6px var(--crt-danger);  animation: crt-pulse-strong 1s ease-in-out infinite; }
+.crt-statusdot--idle  .crt-statusdot__dot { background: var(--crt-fg-dim); }
+
+/* ===== Tag ===== */
+.crt-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.crt-tag--info   { color: var(--crt-info); }
+.crt-tag--warn   { color: var(--crt-warn); }
+.crt-tag--alert  { color: var(--crt-danger); }
+.crt-tag--accent { color: var(--crt-accent); }
+.crt-tag--dim    { color: var(--crt-fg-dim); }
+
+/* ===== ModeBadge ===== */
+.crt-mode {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.crt-mode--hard      { color: var(--crt-danger); }
+.crt-mode--shadow    { color: var(--crt-fg-dim); }
+.crt-mode--whitelist { color: var(--crt-info); }
+.crt-mode--temp      { color: var(--crt-warn); }
+.crt-mode--neutral   { color: var(--crt-fg-dim); }
+
+/* ===== Pill ===== */
+.crt-pill {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--crt-border-strong);
+}
+.crt-pill__btn {
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--crt-border-strong);
+  color: var(--crt-fg-dim);
+  font-family: var(--crt-font-display);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.crt-pill__btn:last-child { border-right: none; }
+.crt-pill__btn:hover { color: var(--crt-fg); }
+.crt-pill__btn--active {
+  background: var(--crt-accent);
+  color: var(--crt-bg);
+  font-weight: 700;
+}
+
+/* ===== DataList (犯罪分析報告風) ===== */
+.crt-list { width: 100%; border-collapse: collapse; font-family: var(--crt-font-mono); }
+.crt-list th, .crt-list td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--crt-border);
+  text-align: left;
+  vertical-align: middle;
+}
+.crt-list th {
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--crt-fg-dim);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--crt-border-strong);
+}
+.crt-list tr:hover { background: rgba(196, 209, 64, 0.04); }
+
+.crt-list--cards { display: none; }
+@media (max-width: 1023.98px) {
+  .crt-list { display: none; }
+  .crt-list--cards {
+    display: grid;
+    gap: var(--crt-gap-sm);
+  }
+  .crt-list--cards .crt-list__card {
+    background: var(--crt-bg-card);
+    border: 1px solid var(--crt-border);
+    padding: var(--crt-gap-md);
+    display: grid;
+    gap: 4px;
+  }
+  .crt-list--cards .crt-list__row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--crt-gap-sm);
+    font-size: 12px;
+  }
+  .crt-list--cards .crt-list__row strong {
+    color: var(--crt-fg-dim);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-family: var(--crt-font-display);
+    font-size: 11px;
+  }
+}
+
+/* ===== Toast ===== */
+.crt-toast-host {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--crt-z-toast);
+  display: grid;
+  gap: var(--crt-gap-sm);
+  pointer-events: none;
+}
+.crt-toast {
+  background: var(--crt-bg-card);
+  border: 1px solid var(--crt-border);
+  border-left: 3px solid var(--crt-accent);
+  padding: 10px 14px;
+  min-width: 240px;
+  max-width: 360px;
+  pointer-events: auto;
+  animation: crt-slide-in-right 200ms ease-out;
+  font-family: var(--crt-font-mono);
+  color: var(--crt-fg);
+}
+.crt-toast--ok    { border-left-color: var(--crt-info); }
+.crt-toast--warn  { border-left-color: var(--crt-warn); }
+.crt-toast--alert { border-left-color: var(--crt-danger); }
+.crt-toast__title {
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--crt-fg-dim);
+}
+
+/* ===== Modal ===== */
+.crt-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.78);
+  display: grid;
+  place-items: center;
+  z-index: var(--crt-z-modal);
+  animation: crt-fade-in 120ms linear;
+  padding: var(--crt-gap-md);
+}
+.crt-modal {
+  background: var(--crt-bg-card);
+  border: 1px solid var(--crt-border-strong);
+  padding: var(--crt-gap-lg);
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  position: relative;
+}
+.crt-modal__title {
+  margin: 0 0 var(--crt-gap-md);
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 16px;
+  color: var(--crt-fg);
+}
+.crt-modal__close {
+  position: absolute; top: 8px; right: 8px;
+}
+
+/* ===== Drawer ===== */
+.crt-drawer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: var(--crt-z-drawer);
+  animation: crt-fade-in 120ms linear;
+}
+.crt-drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(420px, 92vw);
+  background: var(--crt-bg-card);
+  border-left: 1px solid var(--crt-border-strong);
+  z-index: calc(var(--crt-z-drawer) + 1);
+  padding: var(--crt-gap-lg);
+  overflow: auto;
+  animation: crt-slide-in-right 200ms ease-out;
+}
+.crt-drawer__title {
+  margin: 0 0 var(--crt-gap-md);
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 16px;
+  color: var(--crt-fg);
+}
+
+/* ===== EmptyState / LoadingState (>>) ===== */
+.crt-empty, .crt-loading {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: var(--crt-gap-2xl);
+  color: var(--crt-fg-dim);
+  font-family: var(--crt-font-mono);
+  border: 1px dashed var(--crt-border);
+}
+.crt-empty__title, .crt-loading__title {
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 14px;
+  color: var(--crt-fg);
+  margin-bottom: var(--crt-gap-sm);
+}
+.crt-empty__title::before  { content: '>> '; color: var(--crt-accent); }
+.crt-loading__title::before { content: '>> '; color: var(--crt-accent); }
+
+.crt-loading__bar {
+  margin-top: var(--crt-gap-md);
+  width: 200px; height: 3px;
+  background: var(--crt-border-strong);
+  position: relative;
+  overflow: hidden;
+}
+.crt-loading__bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--crt-accent);
+  animation: crt-loading-slide 1.4s linear infinite;
+}
+@keyframes crt-loading-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ===== HeadlineGlitch =====
+   PROFILER ではグリッチを使わない方針なので、デフォルトは無装飾 sans。
+   data-glitch="on" を付けても極小限度しか動かない (animations.css 側で抑制)。 */
+.crt-glitch {
+  display: inline-block;
+  font-family: var(--crt-font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--crt-fg);
+  position: relative;
+}
+.crt-glitch--accent { color: var(--crt-accent); }
+.crt-glitch[data-glitch="on"]   { animation: crt-glitch 8s infinite steps(1, end); }
+.crt-glitch[data-glitch="soft"] { animation: crt-glitch-soft 12s infinite steps(1, end); }
