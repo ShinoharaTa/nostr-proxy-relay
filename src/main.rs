@@ -457,20 +457,25 @@ async fn main() -> anyhow::Result<()> {
     // 例:
     //   /config            → /console
     //   /config/anything   → /console/anything
-    async fn legacy_config_redirect(
+    // 認証なしで素通しするため、`protected`(BasicAuth) より前に merge する。
+    async fn legacy_config_root(req: axum::http::Request<axum::body::Body>) -> axum::response::Response {
+        let target = match req.uri().query() {
+            Some(q) => format!("/console?{q}"),
+            None => "/console".to_string(),
+        };
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::MOVED_PERMANENTLY)
+            .header(axum::http::header::LOCATION, target)
+            .body(axum::body::Body::empty())
+            .unwrap()
+    }
+    async fn legacy_config_rest(
+        axum::extract::Path(rest): axum::extract::Path<String>,
         req: axum::http::Request<axum::body::Body>,
     ) -> axum::response::Response {
-        let path = req.uri().path();
-        // `/config` ピッタリは `/console` へ。`/config/foo` は `/console/foo` へ。
-        let target = if let Some(rest) = path.strip_prefix("/config/") {
-            format!("/console/{rest}")
-        } else {
-            "/console".to_string()
-        };
-        let target = if let Some(q) = req.uri().query() {
-            format!("{target}?{q}")
-        } else {
-            target
+        let target = match req.uri().query() {
+            Some(q) => format!("/console/{rest}?{q}"),
+            None => format!("/console/{rest}"),
         };
         axum::response::Response::builder()
             .status(axum::http::StatusCode::MOVED_PERMANENTLY)
@@ -480,10 +485,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let legacy_redirect = Router::new()
-        .route("/config", get(legacy_config_redirect))
-        .nest_service("/config/", tower::service_fn(|req| async {
-            Ok::<_, std::convert::Infallible>(legacy_config_redirect(req).await)
-        }));
+        .route("/config", get(legacy_config_root))
+        .route("/config/", get(legacy_config_root))
+        .route("/config/*rest", get(legacy_config_rest));
 
     let protected = Router::new()
         // /console/* は新 SPA。BasicAuth 配下で配信。
