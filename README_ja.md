@@ -31,11 +31,23 @@ proxy-nostr-relay
 
 サーバーは `ws://localhost:8080` で起動します。
 
-### 3. 管理画面
-ブラウザで以下のURLを開き、設定した ID/パスワードでログインしてください。
-`http://localhost:8080/config`
+### 3. ランディングページ
 
-ここで接続先のバックエンドリレーを設定できます。
+`http://localhost:8080/` をブラウザで開くと、認証なしの**公開 LP** が表示されます。
+uptime / 接続数 / 直近 1h のイベント配信レート / バックエンドリレーの健全性 / 直近インシデントを 10 秒間隔のポーリング (`GET /api/public/status`) で表示します。
+
+### 4. 管理コンソール
+
+`http://localhost:8080/console` を開き、設定した ID / パスワードでログインしてください。
+PROFILER テーマ (Watch Dogs 1 ctOS モチーフ) の新管理コンソールが、PC・タブレット・スマホで同等の機能で動きます。サイドナビは 5 グループ:
+
+- **OVERVIEW** — Dashboard / Live Events (SSE) / Logs
+- **BACKEND** — Backend Relays / NIP-11
+- **ACCESS CONTROL** — POST Policy / Npub / IP ACL / Quarantine
+- **FILTERING** — Kind Blocklist / DSL Rules / Quick BAN
+- **OPERATIONS** — Telemetry / System
+
+> 旧管理画面のパス `/config/*` は `/console/*` への 301 永続リダイレクトで吸収されます。既存ブックマークはそのまま使えます。
 
 ---
 
@@ -91,7 +103,9 @@ proxy-nostr-relay
 - [設定と運用 (systemd/Nginx)](docs/configuration_ja.md)
 - [データの永続化とバックアップ](docs/persistence_ja.md)
 - [Filter Query Language (DSL) 仕様](docs/filter-query_ja.md)
-- [API リファレンス](docs/api_ja.md)
+- [API リファレンス](docs/api_ja.md) — 公開 / 管理 / SSE / 旧 `/config` 互換
+- [UI 再設計計画書 + PROFILER テーマ](docs/ui_redesign_ja.md)
+- [PROFILER テーマ仕様](docs/ui_theme_ja.md)
 - [開発者ガイド](docs/development_ja.md)
 
 ## ライセンス

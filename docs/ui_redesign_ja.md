@@ -416,15 +416,27 @@ UI 側の観測：
 
 ---
 
-## 12. オープン疑問（次回の合意ポイント）
+## 12. オープン疑問（決着）
 
-実装着手前に確定させたい：
+すべて決定済み。実装中の判断履歴を残すため Q/A 形式で記載する。
 
-1. **`/api/public/status` の出力粒度**: § 11 の通り集計値のみで進めて良いか
-2. **「アニメーション OFF」「CRT OFF」設定の保存先**: localStorage で十分か、サーバ側に持つか
-3. **Bottom Tab の構成**: スマホ画面下部の優先度（推奨：緊急アクション FAB + 4 グループタブ）
+| # | Q | 決定 | 反映先 |
+|---|---|---|---|
+| 1 | `/api/public/status` の出力粒度は集計値のみで良いか | **YES**。npub / IP は出さず、過去 1h を 60 サンプル × 3 系列 (posted / delivered / rejected) と接続数・uptime・backend `connected/disconnected` のみ。インシデントは relay_event_logs から 10 件まで | `src/api/public.rs` |
+| 2 | 「アニメーション OFF」「CRT OFF」設定の保存先 | **localStorage** で十分（端末ローカル UX 設定でありユーザに紐付ける必要がない）。Phase 2.6 の System ページからトグル提供 | `web/src/console/pages/SystemPage.tsx` |
+| 3 | Bottom Tab の構成 | **緊急アクション FAB + 5 グループタブ**で実装済み (Overview / Backend / Access / Filtering / Operations) | `web/src/console/shell/BottomTab.tsx`, `EmergencyActionFab.tsx` |
 
 → 既決事項：並走なし／単一切替・BasicAuth 継続・LP rich・アイコン完全自作・Storybook 不採用（Layout Mock 機能も廃止し、ブラウザで直接確認）
+
+---
+
+## 13. 実装後に発見・修正した不具合
+
+| # | 症状 | 原因 | 修正 | 該当 commit |
+|---|---|---|---|---|
+| 1 | `/config/*` への 301 永続リダイレクトが**すべて 401 を返す** | `nest_service("/config/", tower::service_fn(...))` を `Router::new()` に登録した状態で `Router::merge` すると、別 Router (`protected`) に付けた BasicAuth レイヤがなぜか拾ってしまう | `Router::route("/config", get(...))` + `Router::route("/config/{*rest}", get(...))` の素のルートに置き換え。`legacy_config_root` / `legacy_config_rest` ハンドラを別関数として切り出し | 199a126 |
+
+> 教訓: `tower::service_fn` を `nest_service` と組み合わせる場合、axum 0.7 の `Router::merge` 経由でレイヤが意図せず波及することがある。**「レイヤを持たない素の `route`」が安全**。
 
 ---
 
@@ -432,4 +444,4 @@ UI 側の観測：
 
 - [CRT_OPS テーマ仕様書](ui_theme_ja) — 色・タイポ・装飾・コンポーネントトークン
 - [機能仕様](specification_ja) — 既存機能の全体像
-- [API リファレンス](api) — 既存 API（`/api/public/status` は本書で新設提案）
+- [API リファレンス](api) — `/api/public/status`, `/api/system/info`, `/api/telemetry/*` を含む全 API

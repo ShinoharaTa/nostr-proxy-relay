@@ -28,11 +28,21 @@ proxy-nostr-relay
 
 The server will start at `ws://localhost:8080`.
 
-### 3. Admin UI
-Open the following URL in your browser and log in with the ID/password you set.
-`http://localhost:8080/config`
+### 3. Landing Page
 
-Here you can configure the backend relay to connect to.
+Open `http://localhost:8080/` in your browser. The public landing page (`/`) shows live status — uptime, active connections, 1-hour event throughput, backend relays, and recent incidents — without authentication. It polls `GET /api/public/status` every 10 seconds.
+
+### 4. Admin Console
+
+Open `http://localhost:8080/console` and sign in with the ID / password you set above. The new admin console (theme **PROFILER**, Watch Dogs 1 ctOS) is fully responsive (PC / tablet / phone). It is organized into 5 navigation groups:
+
+- **OVERVIEW** — Dashboard / Live Events (SSE) / Logs
+- **BACKEND** — Backend Relays / NIP-11
+- **ACCESS CONTROL** — POST Policy / Npub / IP ACL / Quarantine
+- **FILTERING** — Kind Blocklist / DSL Rules / Quick BAN
+- **OPERATIONS** — Telemetry / System
+
+> The previous admin path `/config/*` is permanently redirected (`301 Moved Permanently`) to `/console/*`. Existing bookmarks keep working.
 
 ---
 
@@ -94,7 +104,8 @@ proxy-nostr-relay
 - [Configuration & Operation (systemd/Nginx)](docs/configuration.md)
 - [Data Persistence & Backup](docs/persistence.md)
 - [Filter Query Language (DSL) Specification](docs/filter-query.md)
-- [API Reference](docs/api.md)
+- [API Reference](docs/api.md) — public, admin, SSE and the legacy 301
+- [UI Redesign Plan & PROFILER theme](docs/ui_redesign_ja.md) (Japanese)
 - [Developer Guide](docs/development.md)
 
 ## License
