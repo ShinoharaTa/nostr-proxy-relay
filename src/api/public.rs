@@ -114,21 +114,7 @@ async fn build_response(s: &PublicCacheState) -> PublicStatusResponse {
         })
         .collect();
 
-    let active_backends = backends
-        .iter()
-        .filter(|b| b.status == "connected")
-        .count();
-    let configured_backends = backends.iter().filter(|b| b.status != "disabled").count();
-
-    let status = if configured_backends == 0 {
-        "down".to_string()
-    } else if active_backends == 0 {
-        "down".to_string()
-    } else if active_backends < configured_backends {
-        "degraded".to_string()
-    } else {
-        "operational".to_string()
-    };
+    let status = compute_status(&backends);
 
     let connections_active: (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM connection_logs WHERE disconnected_at IS NULL")
@@ -227,4 +213,119 @@ fn short_detail(s: &str) -> String {
         t.push('…');
     }
     t
+}
+
+/// `operational` / `degraded` / `down` の三状態を、バックエンド一覧から判定する。
+///
+/// - configured (= 状態が `disabled` 以外) が 0 → `down`
+/// - configured > 0 で active (= `connected`) が 0 → `down`
+/// - active < configured → `degraded`
+/// - active == configured → `operational`
+fn compute_status(backends: &[PublicBackend]) -> String {
+    let active = backends.iter().filter(|b| b.status == "connected").count();
+    let configured = backends.iter().filter(|b| b.status != "disabled").count();
+    if configured == 0 || active == 0 {
+        "down".into()
+    } else if active < configured {
+        "degraded".into()
+    } else {
+        "operational".into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn b(url: &str, status: &str) -> PublicBackend {
+        PublicBackend {
+            url: url.into(),
+            status: status.into(),
+            connected_since: None,
+        }
+    }
+
+    #[test]
+    fn sanitized_host_strips_path_and_scheme() {
+        assert_eq!(sanitized_host("wss://yabu.me/relay"), "yabu.me");
+        assert_eq!(sanitized_host("ws://example.test:7777/x?y=1"), "example.test");
+        assert_eq!(sanitized_host("https://relay-jp.shino3.net"), "relay-jp.shino3.net");
+    }
+
+    #[test]
+    fn sanitized_host_returns_empty_on_invalid() {
+        assert_eq!(sanitized_host("not a url"), "");
+        assert_eq!(sanitized_host(""), "");
+    }
+
+    #[test]
+    fn short_detail_truncates_at_80_chars_and_adds_ellipsis() {
+        let long: String = "a".repeat(120);
+        let out = short_detail(&long);
+        let chars: Vec<char> = out.chars().collect();
+        assert_eq!(chars.len(), 81); // 80 + ellipsis
+        assert_eq!(*chars.last().unwrap(), '…');
+    }
+
+    #[test]
+    fn short_detail_replaces_newlines() {
+        let s = "line1\nline2\nline3";
+        assert_eq!(short_detail(s), "line1 line2 line3");
+    }
+
+    #[test]
+    fn short_detail_preserves_short_strings() {
+        assert_eq!(short_detail("ok"), "ok");
+        assert_eq!(short_detail(""), "");
+    }
+
+    #[test]
+    fn compute_status_empty_is_down() {
+        assert_eq!(compute_status(&[]), "down");
+    }
+
+    #[test]
+    fn compute_status_all_disabled_is_down() {
+        assert_eq!(
+            compute_status(&[b("wss://a", "disabled"), b("wss://b", "disabled")]),
+            "down"
+        );
+    }
+
+    #[test]
+    fn compute_status_none_connected_is_down() {
+        assert_eq!(
+            compute_status(&[b("wss://a", "connecting"), b("wss://b", "disconnected")]),
+            "down"
+        );
+    }
+
+    #[test]
+    fn compute_status_partial_connected_is_degraded() {
+        assert_eq!(
+            compute_status(&[
+                b("wss://a", "connected"),
+                b("wss://b", "disconnected"),
+                b("wss://c", "connected"),
+            ]),
+            "degraded"
+        );
+    }
+
+    #[test]
+    fn compute_status_all_connected_is_operational() {
+        assert_eq!(
+            compute_status(&[b("wss://a", "connected"), b("wss://b", "connected")]),
+            "operational"
+        );
+    }
+
+    #[test]
+    fn compute_status_ignores_disabled_in_denominator() {
+        // disabled は configured に数えない → connected:1, configured:1 で operational
+        assert_eq!(
+            compute_status(&[b("wss://a", "connected"), b("wss://b", "disabled")]),
+            "operational"
+        );
+    }
 }

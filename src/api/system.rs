@@ -274,3 +274,86 @@ fn mask(s: &str) -> String {
         format!("…{}", last4)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_short_string_becomes_stars() {
+        assert_eq!(mask(""), "");
+        assert_eq!(mask("a"), "*");
+        assert_eq!(mask("abcd"), "****");
+    }
+
+    #[test]
+    fn mask_long_string_keeps_last4() {
+        assert_eq!(mask("abcde"), "…bcde");
+        assert_eq!(mask("super-secret-token-XYZ9"), "…XYZ9");
+    }
+
+    #[test]
+    fn mask_does_not_leak_any_full_secret() {
+        let secret = "0123456789abcdef";
+        let out = mask(secret);
+        assert!(!out.contains("0123456789ab"));
+        assert!(out.ends_with("cdef"));
+    }
+
+    #[test]
+    fn sqlite_path_from_url_handles_all_forms() {
+        assert_eq!(
+            sqlite_path_from_url("sqlite://relay.db"),
+            Some("relay.db".to_string())
+        );
+        assert_eq!(
+            sqlite_path_from_url("sqlite:data/app.sqlite"),
+            Some("data/app.sqlite".to_string())
+        );
+        assert_eq!(
+            sqlite_path_from_url("/abs/path/foo.sqlite"),
+            Some("/abs/path/foo.sqlite".to_string())
+        );
+        // Non-sqlite URL は素通し (現状仕様)
+        assert_eq!(
+            sqlite_path_from_url("postgres://x/y"),
+            Some("postgres://x/y".to_string())
+        );
+    }
+
+    #[test]
+    fn env_u32_falls_back_on_missing_or_invalid() {
+        // 名前が衝突しない適当なキーを使う。
+        let key = "PROXY_TEST_ENV_U32_NONEXISTENT_999";
+        std::env::remove_var(key);
+        assert_eq!(env_u32(key, 42), 42);
+
+        std::env::set_var(key, "not-a-number");
+        assert_eq!(env_u32(key, 42), 42);
+
+        std::env::set_var(key, "7");
+        assert_eq!(env_u32(key, 42), 7);
+
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn env_u64_parses_large_values() {
+        let key = "PROXY_TEST_ENV_U64_NONEXISTENT_999";
+        std::env::remove_var(key);
+        assert_eq!(env_u64(key, 100), 100);
+
+        std::env::set_var(key, "9999999999");
+        assert_eq!(env_u64(key, 100), 9_999_999_999);
+
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn init_started_at_is_idempotent() {
+        let first = init_started_at();
+        let second = init_started_at();
+        assert_eq!(first, second);
+        assert!(uptime_sec() < 60 * 60 * 24 * 365); // sanity
+    }
+}
