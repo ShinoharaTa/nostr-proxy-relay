@@ -26,11 +26,10 @@ use axum::{
     http::HeaderMap,
     routing::get,
     Router,
-    response::{Html, IntoResponse, Json},
+    response::{IntoResponse, Json},
 };
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use sqlx::SqlitePool;
 use rust_embed::Embed;
@@ -310,11 +309,13 @@ async fn main() -> anyhow::Result<()> {
         event_bus: event_bus.clone(),
     };
 
-    // Landing page configuration from environment variables
-    let landing_config = docs::LandingPageConfig {
-        relay_url: std::env::var("RELAY_URL").unwrap_or_else(|_| "wss://your-relay.example.com".to_string()),
-        github_url: std::env::var("GITHUB_URL").unwrap_or_else(|_| "https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
-    };
+    // RELAY_URL / GITHUB_URL は React LP (`web/src/landing/`) 内のリンク表示で利用するため、
+    // ここで読み出すだけで、Rust 側のテンプレ生成は行わない。
+    // 値はビルド時に固定したくない (運用先で変えたい) ので、API 経由ではなく
+    // 現状フロントに環境変数を渡す手段が未整備。必要になったら `/api/public/status` に
+    // 含めるか、別エンドポイントを追加する。
+    let _ = std::env::var("RELAY_URL");
+    let _ = std::env::var("GITHUB_URL");
 
     // SPA static handler.
     // `nest_service` strips the prefix before passing the request, so we just look at the
@@ -588,9 +589,6 @@ async fn main() -> anyhow::Result<()> {
             }),
         )
         .route("/healthz", get(|| async { axum::http::StatusCode::OK }));
-
-    // landing_config / serve_landing_page は legacy。GITHUB_URL は LandingPage 内のリンクで利用。
-    let _ = landing_config;
 
     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
     tracing::info!(%addr, "listening");

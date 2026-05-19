@@ -68,6 +68,9 @@ pub struct FilterEngine {
     rules_loaded_at: Arc<RwLock<Option<std::time::Instant>>>,
 }
 
+/// FilterMatch / MatchKind は将来 API レスポンスで「どのルールに当たったか」を
+/// 返すために用意してあるが、現状は内部 bool 判定のみで未使用。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterMatch {
     pub kind: MatchKind,
@@ -75,6 +78,7 @@ pub struct FilterMatch {
     pub rule_name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchKind {
@@ -104,6 +108,8 @@ impl FilterEngine {
         Ok(())
     }
 
+    /// テスト・管理 API から手動 reload するための公開ラッパ。
+    #[allow(dead_code)]
     pub async fn force_reload(&self, pool: &SqlitePool) -> anyhow::Result<()> {
         self.reload(pool).await
     }

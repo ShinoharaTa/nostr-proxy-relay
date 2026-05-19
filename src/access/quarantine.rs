@@ -20,6 +20,9 @@ impl QuarantineScope {
         }
     }
 
+    /// API 出力で scope 名を返す際の helper（現状 GET /api/quarantine は DB に保存された
+    /// 生 string をそのまま返すため未使用）。
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Post => "post",
@@ -32,6 +35,8 @@ impl QuarantineScope {
         matches!(self, Self::Post | Self::All)
     }
 
+    /// REQ 経路の評価で利用予定。現状 ws_proxy は POST 経路のみ Quarantine 対象。
+    #[allow(dead_code)]
     pub fn covers_req(&self) -> bool {
         matches!(self, Self::Req | Self::All)
     }

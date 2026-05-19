@@ -12,4 +12,7 @@ pub mod quarantine;
 pub use ip::{IpAclCache, IpDecision};
 pub use npub_key::pubkey_hex_to_npub;
 pub use post_policy::{evaluate_post, PostDecision};
-pub use quarantine::{evaluate_quarantine, QuarantineDecision, QuarantineScope};
+pub use quarantine::{evaluate_quarantine, QuarantineDecision};
+// `QuarantineScope` は将来 API スキーマ拡張で再 export する想定だが、現状外部参照なし。
+#[allow(unused_imports)]
+pub use quarantine::QuarantineScope;

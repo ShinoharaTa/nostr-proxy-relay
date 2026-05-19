@@ -25,6 +25,8 @@ pub enum ConnectionState {
 pub struct RelayConnection {
     pub url: String,
     pub state: Arc<std::sync::RwLock<ConnectionState>>,
+    /// pool 経由で外部から書き込むための送信 channel。`RelayPool::send` で利用予定。
+    #[allow(dead_code)]
     pub send_tx: mpsc::UnboundedSender<String>,
     pub recv_broadcast_tx: broadcast::Sender<String>,
     pub status_history: Arc<StatusHistory>,

@@ -1,3 +1,11 @@
+//! Nostr メッセージのフル parser。
+//!
+//! 現状 ws_proxy は `parse_client_msg_with_limits` だけを利用しているため、
+//! `parse_client_msg` / `RelayMsg` / `ClientMsg::Req.filters` などは未使用扱いになる。
+//! API としては将来必要なので、モジュール全体で dead_code を許容する。
+
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -1,4 +1,3 @@
-use anyhow::Context;
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use sqlx::SqlitePool;
@@ -11,7 +10,7 @@ use crate::access::{
     evaluate_post, evaluate_quarantine, pubkey_hex_to_npub, IpAclCache, IpDecision, PostDecision,
     QuarantineDecision,
 };
-use crate::config::{PostPolicy, SettingsCache};
+use crate::config::SettingsCache;
 use crate::event_counter::{Action as CounterAction, EventCounter};
 use crate::event_stream::{LiveEvent, LiveEventBus};
 use crate::filter::engine::FilterEngine;
@@ -531,6 +530,8 @@ async fn reject_post(
 
 enum BackendTextAction {
     SendCloseToBackend(String),
+    /// 将来「内部破棄して何も送らない」分岐を追加する余地 (現状未到達)
+    #[allow(dead_code)]
     Drop,
 }
 
@@ -649,12 +650,14 @@ async fn load_max_subscriptions(pool: &SqlitePool) -> Option<usize> {
 }
 
 /// 互換 API: 旧シグネチャ。新規呼び出しは `proxy_ws_with_ctx` を使うこと。
+#[allow(dead_code)]
 pub async fn proxy_ws(_client_ws: WebSocket, _backend_url: String) -> anyhow::Result<()> {
     anyhow::bail!("proxy_ws is deprecated; use proxy_ws_with_ctx")
 }
 
 /// レガシー互換: 旧 `proxy_ws_with_pool` のシグネチャを残しておく。
 /// 新しい呼び出し元には `proxy_ws_with_ctx` を使うことを推奨。
+#[allow(dead_code)]
 #[deprecated(note = "use proxy_ws_with_ctx")]
 pub async fn proxy_ws_with_pool(
     _client_ws: WebSocket,
