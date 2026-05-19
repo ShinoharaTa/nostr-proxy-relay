@@ -4,6 +4,7 @@
  * - 200 系以外は `ApiError` を投げる
  */
 
+import { notifyApiUnreachable } from '../shell/OfflineBar';
 import type {
   AppVersionResponse,
   ConnectionLogRow,
@@ -49,12 +50,21 @@ async function request<T>(
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(`/api${path}`, {
-    method: init?.method ?? (init?.json !== undefined ? 'POST' : 'GET'),
-    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
-    body,
-    signal: init?.signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: init?.method ?? (init?.json !== undefined ? 'POST' : 'GET'),
+      headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+      body,
+      signal: init?.signal,
+    });
+  } catch (e) {
+    // 「fetch 自体が失敗」= サーバ不達 / ネット切断。AbortError はそのまま投げる。
+    if ((e as Error).name !== 'AbortError') notifyApiUnreachable();
+    throw e;
+  }
+  // 5xx もサーバ不調なので Offline バーを点ける。
+  if (res.status >= 500) notifyApiUnreachable();
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new ApiError(res.status, text);

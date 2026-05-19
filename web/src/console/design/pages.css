@@ -249,3 +249,34 @@ body.crt-animations-off .crt-app *::after {
   animation: none !important;
   transition: none !important;
 }
+
+/* ───────── OFFLINE BAR ─────────
+   docs/ui_redesign_ja.md §7.6: ネット切断時の永続バー。
+   走査線 overlay とは別レイヤ。最上位に固定。
+*/
+.crt-offline-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--crt-alert, #c0392b);
+  color: #fff;
+  font-family: var(--crt-font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+.crt-offline-bar__dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+  animation: crt-blink 1.2s steps(2, end) infinite;
+}
+body.crt-animations-off .crt-offline-bar__dot { animation: none !important; }

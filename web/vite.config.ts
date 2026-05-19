@@ -23,13 +23,13 @@ export default defineConfig({
         display: 'standalone',
         start_url: '/console/',
         scope: '/console/',
+        // 多くのブラウザは SVG アイコンを受け付ける。`any` と `maskable` を
+        // 別エントリで宣言しておくと、Android のアダプティブアイコン枠が正しく
+        // 切り取られ、デスクトップ PWA のホーム枠でも縁が欠けない。
+        // PNG 192/512 が必要になった場合は別途生成して追記する。
         icons: [
-          {
-            src: 'icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
-          },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
       workbox: {

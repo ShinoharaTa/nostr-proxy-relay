@@ -4,8 +4,9 @@ import { Button } from '../primitives/Button';
 import { useToast } from '../primitives/Toast';
 import { Icon } from '../icons/Icon';
 import { IpAcl, PostPolicy, Quarantine, Safelist } from '../api';
+import { recordQuickActionUsed, type QuickActionKind } from '../utils/uiPrefs';
 
-type Action = 'quarantine_npub' | 'hard_ban_ip' | 'toggle_post_policy' | 'disconnect_ip' | null;
+type Action = QuickActionKind | null;
 
 /**
  * docs/ui_redesign_ja.md §6.4 の緊急アクション 4 種を 1 タップで起動するパレット。
@@ -19,9 +20,16 @@ export function EmergencyActionFab() {
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<Action>(null);
 
-  const fire = async (fn: () => Promise<void>, ok: string) => {
-    try { await fn(); toast.push({ variant: 'ok', message: ok }); setAction(null); setOpen(false); }
-    catch (e) { toast.push({ variant: 'alert', message: `${(e as Error).message}` }); }
+  const fire = async (kind: QuickActionKind, fn: () => Promise<void>, ok: string) => {
+    try {
+      await fn();
+      recordQuickActionUsed(kind);
+      toast.push({ variant: 'ok', message: ok });
+      setAction(null);
+      setOpen(false);
+    } catch (e) {
+      toast.push({ variant: 'alert', message: `${(e as Error).message}` });
+    }
   };
 
   return (
@@ -52,24 +60,29 @@ export function EmergencyActionFab() {
           </div>
         ) : action === 'quarantine_npub' ? (
           <NpubQuarantineForm onCancel={() => setAction(null)} onSubmit={(npub, secs) =>
-            fire(() => Quarantine.create({ npub, scope: 'all', duration_secs: secs }).then(() => undefined),
+            fire('quarantine_npub',
+              () => Quarantine.create({ npub, scope: 'all', duration_secs: secs }).then(() => undefined),
               `quarantined ${npub} for ${secs}s`)} />
         ) : action === 'hard_ban_ip' ? (
           <IpHardBanForm
             onCancel={() => setAction(null)}
             onSubmit={(ip, memo) =>
-              fire(() => IpAcl.create({ ip_address: ip, mode: 'hard_ban', memo }), `hard-banned ${ip}`)}
+              fire('hard_ban_ip',
+                () => IpAcl.create({ ip_address: ip, mode: 'hard_ban', memo }),
+                `hard-banned ${ip}`)}
           />
         ) : action === 'toggle_post_policy' ? (
           <PolicyToggleForm onCancel={() => setAction(null)} onSubmit={(p) =>
-            fire(() => PostPolicy.put({ policy: p }).then(() => undefined),
+            fire('toggle_post_policy',
+              () => PostPolicy.put({ policy: p }).then(() => undefined),
               `POST policy = ${p}`)} />
         ) : action === 'disconnect_ip' ? (
           <IpHardBanForm
             onCancel={() => setAction(null)}
             heading="Hard BAN は既存接続を強制切断します。同等扱いとして実行します。"
             onSubmit={(ip, memo) =>
-              fire(() => IpAcl.create({ ip_address: ip, mode: 'hard_ban', memo: memo || 'fab disconnect' }),
+              fire('disconnect_ip',
+                () => IpAcl.create({ ip_address: ip, mode: 'hard_ban', memo: memo || 'fab disconnect' }),
                 `disconnected ${ip}`)}
           />
         ) : null}
