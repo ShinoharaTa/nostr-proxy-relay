@@ -180,18 +180,22 @@ export function LandingPage() {
             )}
           </div>
           <h1 className="lp-hero__title">
-            Nostr Proxy Relay <strong>— 前段フィルタとしての wss://</strong>
+            Nostr Relay Gateway <strong>— managed relay add-on</strong>
           </h1>
           <p className="lp-hero__lead">
-            日本国内ユーザー向けに公開している Nostr Proxy リレー。
-            複数 backend をまとめ、悪質 npub / IP / 大量投稿の前段フィルタとして動作します。
-            REQ・POST どちらも同じポリシーで透過的に処理。
+            複数の Nostr リレー本体を束ね、1 つの <code>wss://</code> エンドポイントとして提供する
+            マネージド運用向けの集約レイヤです。リレー本体を置き換えるのではなく、
+            前段に追加してフェイルオーバー、アクセス制御、フィルタリング、監視をまとめて扱えます。
           </p>
           <div className="lp-hero__cta">
             <span className="lp-hero__endpoint">{endpoint}</span>
             <Button variant="primary" onClick={onCopy}>{copied ? 'Copied' : 'Copy URL'}</Button>
-            <a className="crt-btn crt-btn--ghost" href="/docs/">Read docs</a>
+            <a className="crt-btn crt-btn--ghost" href="/docs/">Architecture docs</a>
           </div>
+          <p className="lp-hero__hint">
+            既存 relay 群の前に置くだけで、クライアントからは単一 relay のように見えます。
+            運用者は backend relay、POST / REQ ポリシー、BAN / Quarantine、ログを管理コンソールから制御できます。
+          </p>
         </header>
 
         <section className="lp-kpis" aria-label="public stats">
@@ -203,12 +207,12 @@ export function LandingPage() {
           <KpiTile
             label="CONN NOW"
             value={stats ? stats.connNow : '—'}
-            delta={stats ? 'last 10s' : ''}
+            delta={stats ? 'active clients' : ''}
           />
           <KpiTile
             label="EVENTS / MIN"
             value={stats ? stats.evtPerMin : '—'}
-            delta={stats ? 'avg last 5m' : ''}
+            delta={stats ? 'gateway throughput' : ''}
           />
           <KpiTile
             label="REJECT RATE"
@@ -220,28 +224,124 @@ export function LandingPage() {
           />
         </section>
 
+        <section className="lp-section lp-section--split" aria-labelledby="lp-usecases">
+          <div>
+            <span className="crt-hud-tag">WHEN TO USE</span>
+            <h2 id="lp-usecases" className="lp-section__title">
+              relay 本体を増やすほど、運用が散らばるときに。
+            </h2>
+            <p className="lp-section__lead">
+              Nostr relay を単体で公開するだけなら、この gateway は必須ではありません。
+              価値が出るのは、複数の relay 本体を使い分けたい、でもユーザーには 1 つの
+              endpoint だけを案内したい、という managed service 的な運用です。
+            </p>
+          </div>
+          <div className="lp-usecases">
+            <Card title="複数 relay を束ねたい" bracket>
+              <p>地域別・用途別・冗長化用の backend relay を、1 つの <code>wss://</code> に集約。</p>
+            </Card>
+            <Card title="ユーザーに設定を増やさせたくない" bracket>
+              <p>クライアント側には単一 URL だけを配布。裏側の relay 追加・停止・差し替えは運用側で吸収。</p>
+            </Card>
+            <Card title="relay 本体を改造せず制御したい" bracket>
+              <p>POST / REQ の制御、BAN、Quarantine、kind 制限、DSL フィルタを gateway 側で後付け。</p>
+            </Card>
+            <Card title="障害時に逃がしたい" bracket>
+              <p>backend が落ちても別 relay へ退避。状態確認と復旧判断を管理コンソールで行えます。</p>
+            </Card>
+          </div>
+        </section>
+
+        <section className="lp-section" aria-labelledby="lp-problems">
+          <div className="lp-section__header">
+            <span className="crt-hud-tag">WHAT IT SOLVES</span>
+            <h2 id="lp-problems" className="lp-section__title">relay 運用で面倒になる部分を、前段に集める。</h2>
+            <p className="lp-section__lead">
+              relay 本体はシンプルに保ち、運用ポリシー・観測・緊急対応を gateway に寄せます。
+              「relay を置き換える」のではなく、マネージド運用のための制御面を追加します。
+            </p>
+          </div>
+          <div className="lp-solutions">
+            <div className="lp-solution">
+              <strong>1 endpoint</strong>
+              <span>ユーザーへ案内する URL は 1 つ。backend 構成変更を利用者に見せない。</span>
+            </div>
+            <div className="lp-solution">
+              <strong>Policy edge</strong>
+              <span>投稿・購読・IP・npub・kind のルールを relay 本体の外側で統一管理。</span>
+            </div>
+            <div className="lp-solution">
+              <strong>Operational visibility</strong>
+              <span>接続、拒否、backend の生死、incident を dashboard / live log で追跡。</span>
+            </div>
+            <div className="lp-solution">
+              <strong>Emergency controls</strong>
+              <span>荒れた時は Quarantine / Hard BAN / POST policy 切替をすばやく実行。</span>
+            </div>
+          </div>
+        </section>
+
         <section className="lp-features">
-          <Card title={<>FILTERING <span className="crt-hud-tag">active</span></>} bracket>
+          <Card title={<>RELAY AGGREGATION <span className="crt-hud-tag">gateway</span></>} bracket>
             <p style={{ margin: 0, color: 'var(--crt-fg)' }}>
-              悪質 npub / IP を Hard / Shadow / Whitelist で前段ブロック。
-              REQ も POST も同一ポリシーで判定。
+              複数 backend relay を束ね、クライアントには単一の <code>wss://</code> として公開。
+              追加・停止・重み付けを前段で管理できます。
             </p>
           </Card>
           <Card
             title={
-              <>POOL <span className="crt-hud-tag">{stats ? `${stats.poolSize} nodes` : '— nodes'}</span></>
+              <>FAILOVER POOL <span className="crt-hud-tag">{stats ? `${stats.poolSize} nodes` : '— nodes'}</span></>
             }
             bracket
           >
             <p style={{ margin: 0, color: 'var(--crt-fg)' }}>
-              複数 backend にフェイルオーバー。fan-out で 1 wss に束ねて配信。
+              backend 障害時は別 relay へ退避。読み取り・書き込みの役割や weight を分けて、
+              managed relay service の前段として安定運用できます。
             </p>
           </Card>
-          <Card title={<>VISIBILITY <span className="crt-hud-tag crt-hud-tag--accent">live</span></>} bracket>
+          <Card title={<>POLICY LAYER <span className="crt-hud-tag">access control</span></>} bracket>
             <p style={{ margin: 0, color: 'var(--crt-fg)' }}>
-              管理者は Shadow / Hard / Quarantine を 1 画面で監視。SSE でリアルタイム反映。
+              POST / REQ、npub、IP、kind、DSL ルールを gateway 側で制御。
+              フィルタリングは主機能ではなく、リレー運用に後付けできる安全装置です。
             </p>
           </Card>
+          <Card title={<>OPERATIONS <span className="crt-hud-tag crt-hud-tag--accent">live</span></>} bracket>
+            <p style={{ margin: 0, color: 'var(--crt-fg)' }}>
+              Dashboard、Live Events、Telemetry、System 情報を管理コンソールに集約。
+              障害・拒否・接続状況を見ながら即時対応できます。
+            </p>
+          </Card>
+        </section>
+
+        <section className="lp-section lp-flow" aria-labelledby="lp-flow">
+          <div className="lp-section__header">
+            <span className="crt-hud-tag">HOW IT WORKS</span>
+            <h2 id="lp-flow" className="lp-section__title">クライアントと relay 群の間に、運用レイヤを 1 枚挟む。</h2>
+          </div>
+          <div className="lp-flow__grid">
+            <div className="lp-flow__step">
+              <span>01</span>
+              <strong>Clients connect to gateway</strong>
+              <p>Nostr クライアントはこのページの <code>wss://</code> だけを relay として登録します。</p>
+            </div>
+            <div className="lp-flow__step">
+              <span>02</span>
+              <strong>Gateway applies policy</strong>
+              <p>REQ / POST、npub、IP、kind、DSL ルールを前段で判定し、必要なら遮断・隔離します。</p>
+            </div>
+            <div className="lp-flow__step">
+              <span>03</span>
+              <strong>Backend relays do relay work</strong>
+              <p>通過した通信を backend relay pool へ中継。障害時は別 backend へ逃がします。</p>
+            </div>
+          </div>
+          <div className="lp-final-cta">
+            <div>
+              <strong>Managed relay service の add-on として設計。</strong>
+              <span>relay 本体、gateway、管理コンソールを分けて考えることで、運用変更を安全に進められます。</span>
+            </div>
+            <a className="crt-btn crt-btn--primary" href="/docs/">設計ドキュメントを見る</a>
+          </div>
         </section>
 
         {stats && stats.recentLog.length > 0 ? (
@@ -257,7 +357,7 @@ export function LandingPage() {
         ) : null}
 
         <footer className="lp-footer">
-          <span>{'>>'} Proxy Nostr Relay (PROFILER)</span>
+          <span>{'>>'} Proxy Nostr Relay Gateway (PROFILER)</span>
           <span>
             <a href="/docs/">docs</a>
             {' · '}
