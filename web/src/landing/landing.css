@@ -37,6 +37,33 @@
   font-family: var(--crt-font-mono);
   font-size: 11px;
 }
+.lp-lang-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--crt-border);
+  background: var(--crt-bg-soft);
+}
+.lp-lang-switcher button {
+  appearance: none;
+  border: 0;
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--crt-fg-dim);
+  font-family: var(--crt-font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.lp-lang-switcher button:hover,
+.lp-lang-switcher button:focus-visible {
+  color: var(--crt-accent);
+  outline: none;
+}
+.lp-lang-switcher button.is-active {
+  background: rgba(196, 209, 64, 0.12);
+  color: var(--crt-accent);
+}
 .lp-hero__title {
   margin: 0;
   font-family: var(--crt-font-display);

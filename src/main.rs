@@ -490,6 +490,24 @@ async fn main() -> anyhow::Result<()> {
         .route("/config/", get(legacy_config_root))
         .route("/config/*rest", get(legacy_config_rest));
 
+    // `/docs` は Phase 2.8 以降 React SPA の i18n DocsApp に移行。
+    // 既存 Markdown renderer は `/docs-md` に legacy として残す。
+    async fn docs_spa_index() -> axum::response::Response {
+        let html = Asset::get("index.html")
+            .map(|c| String::from_utf8_lossy(&c.data).to_string())
+            .unwrap_or_else(|| "<html><body>Docs UI not built.</body></html>".to_string());
+        axum::response::Response::builder()
+            .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(axum::http::header::CACHE_CONTROL, "no-cache")
+            .body(axum::body::Body::from(html))
+            .unwrap()
+    }
+
+    let docs_spa = Router::new()
+        .route("/docs", get(docs_spa_index))
+        .route("/docs/", get(docs_spa_index))
+        .route("/docs/*rest", get(docs_spa_index));
+
     let protected = Router::new()
         // /console/* は新 SPA。BasicAuth 配下で配信。
         .nest_service("/console", tower::service_fn(spa_static_handler))
@@ -514,10 +532,11 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .merge(public_static)
         .merge(legacy_redirect)
+        .merge(docs_spa)
+        .nest("/docs-md", docs::router())
         .merge(protected)
         .nest("/api/public", api::public::router(public_api_state))
         .nest("/api", api::routes::router(api_state, auth_throttle.clone()))
-        .nest("/docs", docs::router())
         .route(
             "/",
             get({
