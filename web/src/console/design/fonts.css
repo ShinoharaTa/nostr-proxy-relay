@@ -1,0 +1,13 @@
+/* PROFILER フォント
+   仕様: docs/ui_theme_ja.md §2.2
+
+   - Arimo            ─ Helvetica metric-compatible (display)
+   - IBM Plex Mono    ─ 本文 / テーブル / コード
+   - VT323            ─ KPI 数値・カウンタ (DOS 端末風)
+
+   一次資料:
+   - https://www.dafont.com/forum/read/313957/ctos-font-watch-dogs (ctOS = Helvetica 系)
+   - https://www.hudsandguis.com/home/2013/07/24/watchdogs-hacking-ui (DOS / 8bit 系の数値表示)
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Arimo:ital,wght@0,400;0,500;0,700;1,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,700;1,400&family=VT323&display=swap');

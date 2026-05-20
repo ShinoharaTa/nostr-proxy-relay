@@ -1,6 +1,6 @@
 [package]
 name = "proxy-nostr-relay"
-version = "0.3.1"
+version = "1.0.0"
 edition = "2021"
 authors = ["ShinoharaTa"]
 description = "A Nostr proxy relay with advanced bot filtering and an admin UI."
@@ -50,6 +50,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.5", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 uuid = { version = "1", features = ["v4"] }
 thiserror = "2"
 regex = "1.10"
@@ -57,4 +58,9 @@ pulldown-cmark = "0.10"
 rust-embed = { version = "8.5", features = ["axum"] }
 mime_guess = "2.0"
 reqwest = { version = "0.12", features = ["json"] }
+ipnet = "2.10"
+hdrhistogram = "7.5"
+async-stream = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+url = "2.5"
 

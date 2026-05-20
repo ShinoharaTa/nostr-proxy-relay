@@ -4,29 +4,32 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/config/',
+  // SPA は LP (`/`) と新コンソール (`/console`, BasicAuth) の 2 マウントポイントで
+  // 同じバンドルを共有する。どこから読まれても assets を解決できるよう root-relative にする。
+  // 旧 `/config` は Phase 2.7 で 301 → /console に永続リダイレクトしたため scope から外す。
+  base: '/',
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
-      scope: '/config/',
+      scope: '/console/',
       manifest: {
         name: 'Proxy Nostr Relay',
         short_name: 'NostrRelay',
-        description: 'Nostr Proxy Relay Admin Panel',
+        description: 'Nostr Proxy Relay Admin Console',
         theme_color: '#1a1d23',
         background_color: '#111217',
         display: 'standalone',
-        start_url: '/config/',
-        scope: '/config/',
+        start_url: '/console/',
+        scope: '/console/',
+        // 多くのブラウザは SVG アイコンを受け付ける。`any` と `maskable` を
+        // 別エントリで宣言しておくと、Android のアダプティブアイコン枠が正しく
+        // 切り取られ、デスクトップ PWA のホーム枠でも縁が欠けない。
+        // PNG 192/512 が必要になった場合は別途生成して追記する。
         icons: [
-          {
-            src: 'icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any maskable',
-          },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
       workbox: {

@@ -3,8 +3,13 @@
 mod connection;
 mod health;
 
-pub use connection::{ConnectionState, RelayConnection};
-pub use health::{StatusHistory, StatusPoint};
+pub use connection::RelayConnection;
+pub use health::StatusPoint;
+// 外部公開 API は当面未使用だが、テスト・拡張のため再 export を残す。
+#[allow(unused_imports)]
+pub use connection::ConnectionState;
+#[allow(unused_imports)]
+pub use health::StatusHistory;
 
 use health::StatusHistory as StatusHistoryType;
 use std::collections::HashMap;
@@ -66,6 +71,18 @@ impl RelayPool {
             if !enabled.contains(url) {
                 conns.remove(url);
                 tracing::info!(url = %url, "Removed relay from pool (disabled or deleted)");
+                let pool = self.pool.clone();
+                let url = url.clone();
+                tokio::spawn(async move {
+                    let _ = sqlx::query(
+                        "INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)",
+                    )
+                    .bind(&url)
+                    .bind("removed")
+                    .bind("disabled or deleted")
+                    .execute(&pool)
+                    .await;
+                });
             }
         }
         for url in enabled {
@@ -80,6 +97,7 @@ impl RelayPool {
                     conn.recv_broadcast_tx.clone(),
                     Arc::clone(&conn.last_error),
                     Arc::clone(&conn.connected_since),
+                    self.pool.clone(),
                 );
                 conns.insert(
                     url.clone(),
@@ -89,12 +107,25 @@ impl RelayPool {
                     },
                 );
                 tracing::info!(url = %url, "Added relay to pool");
+                let pool = self.pool.clone();
+                let url2 = url.clone();
+                tokio::spawn(async move {
+                    let _ = sqlx::query(
+                        "INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)",
+                    )
+                    .bind(&url2)
+                    .bind("added")
+                    .bind("")
+                    .execute(&pool)
+                    .await;
+                });
             }
         }
         Ok(())
     }
 
     /// Get the first enabled relay URL from DB (for backward compatibility).
+    #[allow(dead_code)]
     pub async fn get_first_enabled_url(&self) -> Option<String> {
         let row: Option<(String,)> = sqlx::query_as(
             "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC LIMIT 1",
@@ -106,6 +137,7 @@ impl RelayPool {
     }
 
     /// Send a text message to the given relay. No-op if relay not in pool.
+    #[allow(dead_code)]
     pub async fn send(&self, url: &str, text: String) {
         let conns = self.connections.read().await;
         if let Some(h) = conns.get(url) {
@@ -114,6 +146,7 @@ impl RelayPool {
     }
 
     /// Subscribe to messages from a relay. Returns None if relay not in pool.
+    #[allow(dead_code)]
     pub async fn subscribe(&self, url: &str) -> Option<broadcast::Receiver<String>> {
         let conns = self.connections.read().await;
         conns.get(url).map(|h| h.conn.recv_broadcast_tx.subscribe())

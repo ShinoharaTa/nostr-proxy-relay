@@ -1,5 +1,3 @@
-use sqlx::SqlitePool;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let db_url = std::env::var("DATABASE_URL")

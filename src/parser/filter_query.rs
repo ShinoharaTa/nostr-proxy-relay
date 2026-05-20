@@ -476,8 +476,7 @@ impl Parser {
                 self.advance();
                 Ok(Value::Bool(false))
             }
-            Token::Ident(s) => {
-                // Field reference
+            Token::Ident(_s) => {
                 let field = self.parse_field()?;
                 Ok(Value::Field(Box::new(field)))
             }
@@ -738,7 +737,8 @@ impl CompiledFilter {
         }
     }
 
-    /// Get the AST for serialization
+    /// Get the AST for serialization (テスト・将来の rule explain UI 用)
+    #[allow(dead_code)]
     pub fn ast(&self) -> &Expr {
         &self.ast
     }

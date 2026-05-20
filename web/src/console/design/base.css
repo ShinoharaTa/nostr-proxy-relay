@@ -1,0 +1,55 @@
+/* PROFILER (WD1 ctOS) ベース層 — body / リセット / 共通プリミティブの土台
+   仕様: docs/ui_theme_ja.md */
+
+@import './fonts.css';
+@import './tokens.css';
+@import './breakpoints.css';
+@import './animations.css';
+@import './pages.css';
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--crt-bg);
+  color: var(--crt-fg);
+  font-family: var(--crt-font-mono);
+  font-size: 14px;
+  line-height: 1.55;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+body * { box-sizing: border-box; }
+
+a {
+  color: var(--crt-accent);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+button { font: inherit; }
+
+/* Console 内でのみアクティブにしたいルートクラス。
+   #root からは触らずに、ConsoleApp 直下に付与する。 */
+.crt-app {
+  position: relative;
+  min-height: 100vh;
+  background: var(--crt-bg);
+  color: var(--crt-fg);
+  font-family: var(--crt-font-mono);
+}
+
+/* キーボードフォーカスは accent（鈍い黄緑）で */
+.crt-app :focus-visible {
+  outline: 2px solid var(--crt-accent);
+  outline-offset: 2px;
+}
+
+/* 標準スクロールバーを PROFILER (WD1 ctOS) 風に */
+.crt-app *::-webkit-scrollbar { width: 10px; height: 10px; }
+.crt-app *::-webkit-scrollbar-track { background: var(--crt-bg); }
+.crt-app *::-webkit-scrollbar-thumb {
+  background: var(--crt-border-strong);
+  border: 2px solid var(--crt-bg);
+}
+.crt-app *::-webkit-scrollbar-thumb:hover { background: var(--crt-accent); }

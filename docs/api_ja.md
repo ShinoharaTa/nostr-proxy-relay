@@ -1,58 +1,161 @@
 # API リファレンス
 
-すべての管理用 API エンドポイントは **Basic 認証** が必要です。
+このリレーが公開するすべての HTTP エンドポイントの一覧です。
+
+| 区分 | プレフィックス | 認証 | 用途 |
+|---|---|---|---|
+| 公開 API | `/api/public/*` | **不要** | LP / 外部監視向けの読み取り専用 |
+| 管理 API | `/api/*` | Basic 認証 | 管理コンソール (`/console`) が叩く全機能 |
+| 互換 | `/config/*` | 不要 | `/console/*` への 301 永続リダイレクト |
 
 ## 認証
-HTTP ヘッダーに以下を含めてください。
-`Authorization: Basic <base64(ADMIN_USER:ADMIN_PASS)>`
+
+管理 API は HTTP Basic 認証。資格情報は `.env` の `ADMIN_USER` / `ADMIN_PASS` を使う。
+
+```text
+Authorization: Basic <base64(ADMIN_USER:ADMIN_PASS)>
+```
+
+連続失敗時は IP 単位で throttle がかかる（既定: 5 分間に 10 回失敗で 15 分ロック、`AUTH_*` env で変更可。`GET /api/system/info` で現状確認可能）。
 
 ---
 
-## エンドポイント一覧
+## 公開 API（認証なし）
 
-### リレー設定
-- `GET /api/relay`: 現在のバックエンドリレー設定を取得
-- `PUT /api/relay`: バックエンドリレー（接続先）を更新
+### `GET /api/public/status`
 
-### セーフリスト管理
-- `GET /api/safelist`: 登録済み npub 一覧
-- `POST /api/safelist`: npub の追加・更新
-- `DELETE /api/safelist/:npub`: 削除
-- `PUT /api/safelist/:npub/ban`: 指定した npub を BAN
-- `PUT /api/safelist/:npub/unban`: BAN 解除
+LP に表示する集計ステータス。1 秒キャッシュ。`npub` / `IP` などの個人情報は一切含まない。
 
-### フィルタルール管理 (DSL)
-- `GET /api/filters`: フィルタルール一覧
-- `POST /api/filters`: ルールの作成
-- `PUT /api/filters/:id`: ルールの更新
-- `DELETE /api/filters/:id`: ルールの削除
-- `POST /api/filters/validate`: DSL クエリの構文チェック
+```jsonc
+{
+  "status": "operational",                 // operational | degraded | down
+  "uptime_sec": 131,
+  "connections_active": 9,
+  "events": {
+    "posted_1h":    [/* 60 buckets, 直近 1h を 1min 単位 */],
+    "delivered_1h": [/* 60 */],
+    "rejected_1h":  [/* 60 */]
+  },
+  "backends": [
+    { "url": "wss://yabu.me", "status": "connected", "connected_since": "..." }
+  ],
+  "incidents": [
+    { "ts": "2026-05-06 09:29:18", "event_type": "connected", "summary": "yabu.me " }
+  ],
+  "generated_at": "..."
+}
+```
 
-### IP アクセス制御
-- `GET /api/ip-access-control`: IP リスト取得
-- `POST /api/ip-access-control`: IP の BAN/許可設定
-- `DELETE /api/ip-access-control/:id`: 設定削除
+---
 
-### 統計・ログ
-- `GET /api/stats`: 接続数、拒否理由などの統計情報
-- `GET /api/connection-logs`: 接続履歴
-- `GET /api/event-rejection-logs`: フィルタリングによる拒否履歴
+## 管理 API（要 Basic 認証）
+
+### Backend Relays
+
+- `GET    /api/relay`         バックエンドリレー一覧（`url`, `enabled`, `role`, `weight`, `read_enabled`, `write_enabled`）
+- `PUT    /api/relay`         一括更新（`{ relays: [...] }`）
+- `GET    /api/relay-status`  各リレーのライブ状態（接続中・最終エラー・接続開始時刻）
+- `GET    /api/relay-nip11?url=...`  指定 URL の NIP-11 を probe して返す
+- `GET    /api/relay-info`    自リレー NIP-11
+- `PUT    /api/relay-info`    自リレー NIP-11 更新
+
+### Access Control
+
+- `GET    /api/post-policy`               POST ポリシー (allowlist / denylist) と backend_strategy
+- `PUT    /api/post-policy`               同上を更新（**変更時はフロントで確認モーダル必須**）
+- `GET    /api/safelist`                  npub 一覧
+- `POST   /api/safelist`                  upsert（`{ npub, flags, memo }`）
+- `DELETE /api/safelist/:npub`
+- `PUT    /api/safelist/:npub/ban`
+- `PUT    /api/safelist/:npub/unban`
+- `GET    /api/ip-access-control`         IP/CIDR ACL 一覧（mode: `hard_ban` / `shadow_ban` / `whitelist` / `normal`）
+- `POST   /api/ip-access-control`         追加
+- `PUT    /api/ip-access-control/:id`
+- `DELETE /api/ip-access-control/:id`
+- `GET    /api/quarantine`                Quarantine 中の npub 一覧
+- `POST   /api/quarantine`                Quarantine 追加（`{ npub, scope?, reason?, duration_secs? }`）
+- `DELETE /api/quarantine/:id`            Quarantine 解除
+
+### Filtering
+
+- `GET    /api/req-kind-blacklist`        REQ kind blocklist 一覧
+- `POST   /api/req-kind-blacklist`        追加（`kind_value` 単発 or `kind_min`〜`kind_max`）
+- `PUT    /api/req-kind-blacklist/:id`
+- `DELETE /api/req-kind-blacklist/:id`
+- `GET    /api/filters`                   DSL ルール一覧
+- `POST   /api/filters`                   作成（`{ name, nl_text, apply_to_post?, apply_to_backend? }`）
+- `PUT    /api/filters/:id`               更新
+- `DELETE /api/filters/:id`               削除
+- `POST   /api/filters/validate`          DSL 構文チェック (`{ query }` → `{ ok, error? }`)
+- `GET    /api/simple-ban-rules`          Quick BAN ルール一覧
+- `POST   /api/simple-ban-rules`          作成
+- `PUT    /api/simple-ban-rules/:id`
+- `DELETE /api/simple-ban-rules/:id`
+- `POST   /api/translate/simple-to-dsl`   Quick BAN → DSL 変換プレビュー
+- `POST   /api/translate/dsl-to-simple`   DSL → Quick BAN への戻し（可能なら）
+- `POST   /api/translate/dry-run`         DSL を 1 イベントに当てて結果を返す
+
+### Operations
+
+- `GET    /api/stats`                     現在値（接続数・拒否件数・拒否理由 top）
+- `GET    /api/stats/timeseries?period=1h|24h|7d`  時系列バケット
+- `GET    /api/connection-logs`           接続履歴（`?limit&offset&ip_address&from&to`）
+- `GET    /api/event-rejection-logs`      フィルタ拒否履歴（`?limit&offset&npub&kind&reason&from&to`）
+- `GET    /api/relay-event-logs`          バックエンドリレーのイベント履歴（`?limit&relay_url&event_type&from&to`）
+- `GET    /api/app-version`               `{ "version": "0.3.1" }`
+- `GET    /api/system/info`               バージョン / uptime / auth_throttle / retention / disk / env_overrides
+- `GET    /api/telemetry/status`          InfluxDB 設定状況（token は last4 のみ）
+- `POST   /api/telemetry/test`            InfluxDB に test write を 1 行送信し成否を返す
+
+### Live Stream
+
+- `GET    /api/events/stream`             SSE。フロント Live Events タブが購読
+  - `Content-Type: text/event-stream`、`Transfer-Encoding: chunked`
+  - イベント種別: `accepted` / `delivered` / `rejected` / `dropped` / `connection`
+
+---
+
+## エラーモデル
+
+- `4xx` / `5xx` はレスポンスボディに人間向け説明（任意の文字列）を含む。
+- フロントは `ApiError(status, body)` で受けて、トースト UI に変換する（`web/src/console/api/client.ts`）。
+
+---
+
+## 互換: 旧 `/config/*`
+
+旧管理 UI のパスはすべて 301 永続リダイレクトする。クエリ文字列は維持する。
+
+```text
+GET /config                       → 301 Location: /console
+GET /config/                      → 301 Location: /console
+GET /config/dashboard             → 301 Location: /console/dashboard
+GET /config/access/post-policy?x  → 301 Location: /console/access/post-policy?x
+```
+
+実装は `src/main.rs` の `legacy_config_root` / `legacy_config_rest` ハンドラ。
 
 ---
 
 ## 使用例 (curl)
 
-### セーフリストへの追加
 ```bash
-curl -X POST \
-  -H "Authorization: Basic $(echo -n 'admin:pass' | base64)" \
-  -H "Content-Type: application/json" \
-  -d '{"npub": "npub1...", "flags": 1, "memo": "My Account"}' \
-  http://localhost:8080/api/safelist
-```
+# LP 用ステータス（認証なし）
+curl http://localhost:8080/api/public/status
 
-### 統計情報の取得
-```bash
-curl -H "Authorization: Basic $(echo -n 'admin:pass' | base64)" \
-  http://localhost:8080/api/stats
+# 統計取得
+curl -u admin:pass http://localhost:8080/api/stats
+
+# Quarantine 追加（10 分）
+curl -u admin:pass -H 'Content-Type: application/json' \
+  -d '{"npub":"npub1...","duration_secs":600}' \
+  http://localhost:8080/api/quarantine
+
+# DSL ルールの dry-run
+curl -u admin:pass -H 'Content-Type: application/json' \
+  -d '{"dsl":"kind == 1 AND content =~ /spam/i","event":{"kind":1,"content":"spam"}}' \
+  http://localhost:8080/api/translate/dry-run
+
+# InfluxDB へのテスト書き込み
+curl -u admin:pass -X POST http://localhost:8080/api/telemetry/test
 ```

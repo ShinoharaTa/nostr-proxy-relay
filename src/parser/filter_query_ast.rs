@@ -7,6 +7,11 @@
 //! - `content contains "spam"`
 //! - `kind in [6, 7] AND content matches "(bot|spam)"`
 //! - `(kind == 6 OR kind == 7) AND NOT npub in ["npub1..."]`
+//!
+//! `SpannedToken.end` / `Value::is_list` などのアクセサは将来エラー報告 UI で
+//! 利用予定だが、現状コンパイラからは未使用扱いになるため module 全体で許容する。
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 

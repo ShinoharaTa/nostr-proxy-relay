@@ -1,0 +1,45 @@
+/* CRT_OPS ブレークポイント
+   仕様: docs/ui_redesign_ja.md §6.1
+   sm   <  640px   スマホ
+   md   ≥  640px   タブレット縦
+   lg   ≥ 1024px   タブレット横 / 小型 PC
+   xl   ≥ 1280px   デスクトップ
+   2xl  ≥ 1536px   ワイドモニタ */
+
+:root {
+  --bp-sm: 640px;
+  --bp-md: 640px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+  --bp-2xl: 1536px;
+}
+
+/* 表示制御ユーティリティ（タグに付けて使う） */
+.crt-show-sm { display: none; }
+.crt-show-md { display: none; }
+.crt-show-lg { display: none; }
+.crt-show-xl { display: none; }
+
+@media (max-width: 639.98px) {
+  .crt-hide-sm { display: none !important; }
+  .crt-show-sm { display: revert; }
+}
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .crt-hide-md { display: none !important; }
+  .crt-show-md { display: revert; }
+}
+@media (min-width: 1024px) and (max-width: 1279.98px) {
+  .crt-hide-lg { display: none !important; }
+  .crt-show-lg { display: revert; }
+}
+@media (min-width: 1280px) {
+  .crt-hide-xl { display: none !important; }
+  .crt-show-xl { display: revert; }
+}
+
+/* lg 以上で表示 / 未満で非表示 */
+.crt-lg-up { display: none; }
+@media (min-width: 1024px) {
+  .crt-lg-up { display: revert; }
+  .crt-lg-down { display: none !important; }
+}

@@ -1,0 +1,65 @@
+/* PROFILER デザイントークン (WATCH_DOGS 1 / ctOS / Profiler ベース)
+   仕様: docs/ui_theme_ja.md §2 / §8
+
+   一次資料:
+   - https://www.gameuidatabase.com/gameData.php?id=1157   (WD1 抽出パレット)
+   - https://www.hudsandguis.com/home/2013/07/24/watchdogs-hacking-ui (UI 評)
+   - https://www.dafont.com/forum/read/313957/ctos-font-watch-dogs (フォント特定)
+
+   Note: 互換性維持のため CSS 変数名は --crt-* プレフィックスのまま。
+         値を WD1 ctOS / Profiler 相当に統一。 */
+
+:root {
+  /* ─ Surface (暗茶: WD1 街路の汚れ) ─ */
+  --crt-bg:        #0d0a07;            /* 漆黒ではなく、わずかに暗茶 */
+  --crt-bg-soft:   #15110b;
+  --crt-bg-card:   rgba(28, 22, 14, 0.94);
+
+  /* ─ Foreground (アイボリー: 純白は使わない) ─ */
+  --crt-fg:        #e6e0d4;
+  --crt-fg-dim:    #807563;
+
+  /* ─ Semantic colors (WD1 ctOS / Profiler 抽出) ─ */
+  --crt-accent:    #c4d140;            /* WD1 ctOS 鈍い黄緑 */
+  --crt-accent-2:  #d6e26b;
+  --crt-info:      #6dc4d8;            /* WD1 ダークシアン由来 connected */
+  --crt-warn:      #d4863e;            /* WD1 オレンジ茶 warning */
+  --crt-danger:    #d03d3e;            /* WD1 アラート赤 (Heat Level) */
+
+  /* ─ Borders (暗茶) ─ */
+  --crt-border:    #2e2516;
+  --crt-border-strong: #4a3a22;
+
+  /* ─ Typography (Helvetica + IBM Plex Mono + VT323) ─ */
+  --crt-font-display: 'Arimo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --crt-font-mono:    'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  --crt-font-numeric: 'VT323', 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* ─ Spacing ─ */
+  --crt-gap-xs:    4px;
+  --crt-gap-sm:    8px;
+  --crt-gap-md:    12px;
+  --crt-gap-lg:    16px;
+  --crt-gap-xl:    24px;
+  --crt-gap-2xl:   36px;
+
+  /* ─ Radius (PROFILER も角張る) ─ */
+  --crt-radius:    0;
+  --crt-radius-dot: 50%;
+
+  /* ─ Glow (PROFILER は控えめ。装飾は border / >> 矢印に集中) ─ */
+  --crt-glow-primary: 0 0 6px rgba(196, 209, 64, 0.20);
+  --crt-glow-bar:     0 0 4px rgba(196, 209, 64, 0.30);
+  --crt-text-glow:    0 0 4px rgba(196, 209, 64, 0.20);
+
+  /* ─ z-index layers ─ */
+  --crt-z-content:      1;
+  --crt-z-decor:        0;
+  --crt-z-side-nav:     10;
+  --crt-z-topbar:       20;
+  --crt-z-fab:          30;
+  --crt-z-drawer:       100;
+  --crt-z-modal:        110;
+  --crt-z-toast:        1000;
+  --crt-z-crt-overlay:  9998;
+}

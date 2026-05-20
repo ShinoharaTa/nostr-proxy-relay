@@ -1,34 +1,139 @@
-mod db;
-mod nostr;
-mod proxy;
-mod filter;
-mod parser;
-mod auth;
+mod access;
 mod api;
+mod auth;
+mod auth_throttle;
+mod config;
+mod db;
 mod docs;
-mod relay_pool;
+mod event_counter;
+mod event_stream;
+mod filter;
+mod log_cleaner;
 mod metrics;
+mod nostr;
+mod parser;
+mod proxy;
+mod relay_pool;
+mod session_registry;
 
 use db::{connect, migrate::migrate};
 use anyhow::Context;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_appender::non_blocking::WorkerGuard;
 use axum::{
     extract::{ws::WebSocketUpgrade, ConnectInfo},
     http::header::ACCEPT,
     http::HeaderMap,
     routing::get,
     Router,
-    response::{Html, IntoResponse, Json},
+    response::{IntoResponse, Json},
 };
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 use sqlx::SqlitePool;
 use rust_embed::Embed;
+use crate::access::IpAclCache;
+use crate::config::SettingsCache;
+use crate::event_counter::EventCounter;
+use crate::event_stream::LiveEventBus;
+use crate::proxy::ws_proxy::ProxyContext;
 use crate::relay_pool::RelayPool;
+use crate::session_registry::SessionRegistry;
 
 #[derive(Embed)]
 #[folder = "web/dist"]
 struct Asset;
+
+const LOG_FILE_PREFIX: &str = "proxy-nostr-relay.log.";
+const LOG_RETENTION_HOURS: u64 = 72;
+
+fn setup_logging() -> anyhow::Result<WorkerGuard> {
+    let log_dir = std::env::var("LOG_DIR").unwrap_or_else(|_| "logs".to_string());
+    std::fs::create_dir_all(&log_dir)?;
+
+    let file_appender = tracing_appender::rolling::hourly(&log_dir, "proxy-nostr-relay.log");
+    let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(file_writer),
+        )
+        .init();
+
+    spawn_log_cleanup_task(
+        PathBuf::from(log_dir),
+        Duration::from_secs(LOG_RETENTION_HOURS * 60 * 60),
+    );
+
+    Ok(file_guard)
+}
+
+fn spawn_log_cleanup_task(log_dir: PathBuf, retention: Duration) {
+    tokio::spawn(async move {
+        if let Err(e) = cleanup_old_log_files(&log_dir, retention) {
+            tracing::warn!(error = %e, "Failed to clean up old log files");
+        }
+
+        let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+        interval.tick().await; // skip immediate first tick
+        loop {
+            interval.tick().await;
+            if let Err(e) = cleanup_old_log_files(&log_dir, retention) {
+                tracing::warn!(error = %e, "Failed to clean up old log files");
+            }
+        }
+    });
+}
+
+fn cleanup_old_log_files(log_dir: &Path, retention: Duration) -> anyhow::Result<()> {
+    let now = SystemTime::now();
+    for entry in std::fs::read_dir(log_dir)? {
+        let entry = match entry {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to read an entry in log directory");
+                continue;
+            }
+        };
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !file_name.starts_with(LOG_FILE_PREFIX) {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %path.display(), "Failed to read log file metadata");
+                continue;
+            }
+        };
+        let modified = match metadata.modified() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, path = %path.display(), "Failed to read log file modified time");
+                continue;
+            }
+        };
+        let age = match now.duration_since(modified) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if age > retention {
+            match std::fs::remove_file(&path) {
+                Ok(_) => tracing::info!(path = %path.display(), "Removed expired log file"),
+                Err(e) => tracing::warn!(error = %e, path = %path.display(), "Failed to remove expired log file"),
+            }
+        }
+    }
+    Ok(())
+}
 
 /// DBから有効なバックエンドリレーURLを取得
 async fn get_backend_relay_url(pool: &SqlitePool) -> String {
@@ -150,10 +255,7 @@ async fn main() -> anyhow::Result<()> {
     // .envファイルを読み込む（存在しなくてもエラーにならない）
     let _ = dotenvy::dotenv();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let _log_guard = setup_logging()?;
 
     // default: local sqlite file in workspace
     let db_url =
@@ -176,182 +278,336 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("db migrated ok");
 
     let relay_pool = RelayPool::new(pool.clone());
+    let settings = SettingsCache::load(pool.clone()).await?;
+    let ip_acl = IpAclCache::new(pool.clone());
+    let session_registry = SessionRegistry::new();
+    let event_counter = EventCounter::new();
+    let event_bus = LiveEventBus::new(1024);
+    let auth_throttle = crate::auth_throttle::AuthThrottle::from_env();
+
+    event_counter.clone().spawn_flush_task(pool.clone());
+    crate::event_counter::spawn_retention_task(pool.clone(), 30);
+    crate::access::quarantine::spawn_expiry_task(pool.clone());
+    crate::log_cleaner::spawn(pool.clone());
 
     if let Some(influx) = metrics::InfluxExporter::from_env() {
-        influx.clone().run(pool.clone(), Some(relay_pool.clone()));
+        influx
+            .clone()
+            .run(pool.clone(), Some(relay_pool.clone()), Some(event_counter.clone()));
         tracing::info!("InfluxDB metrics exporter started");
     }
 
-    // Landing page configuration from environment variables
-    let landing_config = docs::LandingPageConfig {
-        relay_url: std::env::var("RELAY_URL").unwrap_or_else(|_| "wss://your-relay.example.com".to_string()),
-        github_url: std::env::var("GITHUB_URL").unwrap_or_else(|_| "https://github.com/ShinoharaTa/nostr-proxy-relay".to_string()),
+    // uptime 計算用に起動時刻を確定させる (system::info / public::status から参照)
+    let _ = api::system::init_started_at();
+
+    let proxy_ctx = ProxyContext {
+        pool: pool.clone(),
+        settings: settings.clone(),
+        ip_acl: ip_acl.clone(),
+        session_registry: session_registry.clone(),
+        event_counter: event_counter.clone(),
+        event_bus: event_bus.clone(),
     };
 
-    // Serve React admin UI from embedded assets
-    // For SPA: serve static files if they exist, otherwise serve index.html
-    let static_dir = tower::service_fn({
-        move |req: axum::http::Request<axum::body::Body>| {
-            let path = req.uri().path().to_string();
-            async move {
-                let path = path.trim_start_matches("/config").trim_start_matches('/');
-                let path = if path.is_empty() { "index.html" } else { path };
-                
-                // index.html is always read fresh and never browser-cached.
-                // Hashed assets (JS/CSS) can be cached long-term.
-                if path == "index.html" {
-                    let html = Asset::get("index.html")
-                        .map(|c| String::from_utf8_lossy(&c.data).to_string())
-                        .unwrap_or_else(|| "<html><body>Admin UI not found.</body></html>".to_string());
-                    return Ok::<_, std::convert::Infallible>(
-                        axum::response::Response::builder()
-                            .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
-                            .header(axum::http::header::CACHE_CONTROL, "no-cache")
-                            .body(axum::body::Body::from(html))
-                            .unwrap()
-                    );
-                }
+    // RELAY_URL / GITHUB_URL は React LP (`web/src/landing/`) 内のリンク表示で利用するため、
+    // ここで読み出すだけで、Rust 側のテンプレ生成は行わない。
+    // 値はビルド時に固定したくない (運用先で変えたい) ので、API 経由ではなく
+    // 現状フロントに環境変数を渡す手段が未整備。必要になったら `/api/public/status` に
+    // 含めるか、別エンドポイントを追加する。
+    let _ = std::env::var("RELAY_URL");
+    let _ = std::env::var("GITHUB_URL");
 
-                match Asset::get(path) {
-                    Some(content) => {
-                        let mime = mime_guess::from_path(path).first_or_octet_stream();
-                        let mut builder = axum::response::Response::builder()
-                            .header(axum::http::header::CONTENT_TYPE, mime.as_ref());
-                        // Hashed assets get long-term cache; others get no-cache
-                        if path.starts_with("assets/") {
-                            builder = builder.header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable");
-                        }
-                        Ok::<_, std::convert::Infallible>(
-                            builder.body(axum::body::Body::from(content.data)).unwrap()
-                        )
+    // SPA static handler.
+    // `nest_service` strips the prefix before passing the request, so we just look at the
+    // remaining path and resolve embedded assets / index.html (with SPA fallback).
+    fn spa_static_handler(
+        req: axum::http::Request<axum::body::Body>,
+    ) -> impl std::future::Future<Output = Result<axum::response::Response, std::convert::Infallible>>
+    {
+        async move {
+            let raw = req.uri().path().trim_start_matches('/').to_string();
+            let path = if raw.is_empty() { "index.html".to_string() } else { raw };
+
+            if path == "index.html" {
+                let html = Asset::get("index.html")
+                    .map(|c| String::from_utf8_lossy(&c.data).to_string())
+                    .unwrap_or_else(|| "<html><body>Admin UI not found.</body></html>".to_string());
+                return Ok::<_, std::convert::Infallible>(
+                    axum::response::Response::builder()
+                        .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                        .header(axum::http::header::CACHE_CONTROL, "no-cache")
+                        .body(axum::body::Body::from(html))
+                        .unwrap(),
+                );
+            }
+
+            match Asset::get(&path) {
+                Some(content) => {
+                    let mime = mime_guess::from_path(&path).first_or_octet_stream();
+                    let mut builder = axum::response::Response::builder()
+                        .header(axum::http::header::CONTENT_TYPE, mime.as_ref());
+                    if path.starts_with("assets/") {
+                        builder = builder.header(
+                            axum::http::header::CACHE_CONTROL,
+                            "public, max-age=31536000, immutable",
+                        );
                     }
-                    None => {
-                        // SPA fallback: return index.html for page routes only.
-                        // Static assets (paths with file extensions) get 404 instead.
-                        let has_extension = path.rsplit('/').next().map_or(false, |s| s.contains('.'));
-                        if has_extension {
-                            Ok::<_, std::convert::Infallible>(
-                                axum::http::StatusCode::NOT_FOUND.into_response()
-                            )
-                        } else {
-                            // Read index.html fresh (not cached) so it stays in sync with assets
-                            let html = Asset::get("index.html")
-                                .map(|c| String::from_utf8_lossy(&c.data).to_string())
-                                .unwrap_or_else(|| "<html><body>Admin UI not found.</body></html>".to_string());
-                            Ok::<_, std::convert::Infallible>(
-                                axum::response::Response::builder()
-                                    .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
-                                    .header(axum::http::header::CACHE_CONTROL, "no-cache")
-                                    .body(axum::body::Body::from(html))
-                                    .unwrap()
-                            )
-                        }
+                    Ok::<_, std::convert::Infallible>(
+                        builder.body(axum::body::Body::from(content.data)).unwrap(),
+                    )
+                }
+                None => {
+                    let has_extension =
+                        path.rsplit('/').next().map_or(false, |s| s.contains('.'));
+                    if has_extension {
+                        Ok::<_, std::convert::Infallible>(
+                            axum::http::StatusCode::NOT_FOUND.into_response(),
+                        )
+                    } else {
+                        let html = Asset::get("index.html")
+                            .map(|c| String::from_utf8_lossy(&c.data).to_string())
+                            .unwrap_or_else(|| {
+                                "<html><body>Admin UI not found.</body></html>".to_string()
+                            });
+                        Ok::<_, std::convert::Infallible>(
+                            axum::response::Response::builder()
+                                .header(
+                                    axum::http::header::CONTENT_TYPE,
+                                    "text/html; charset=utf-8",
+                                )
+                                .header(axum::http::header::CACHE_CONTROL, "no-cache")
+                                .body(axum::body::Body::from(html))
+                                .unwrap(),
+                        )
                     }
                 }
             }
         }
-    });
-    
-    let protected = Router::new()
-        // index.html が `/assets/...` と `/vite.svg` を参照するため、それらも埋め込み資産から配信する
-        .route("/vite.svg", get(|| async {
-            match Asset::get("vite.svg") {
+    }
+
+    // Public root-level files: SPA entry assets and PWA manifest/service worker.
+    // The SPA bundle (`/assets/*`) と PWA manifest は LP (`/`) と admin
+    // (`/config`, `/console` — BasicAuth 配下) で共有する。公開して問題ない理由：
+    //   - JS バンドルはクライアントサイドコードのみ
+    //   - 機密 API は `/api` 配下で個別に auth check される
+    // （かつての `/mock/*` テーマプレビューは archive/mock-themes-2026-05-04.zip に退避済み）
+    fn serve_root_file(name: &'static str) -> axum::routing::MethodRouter {
+        get(move || async move {
+            match Asset::get(name) {
                 Some(content) => {
-                    let mut res = axum::body::Body::from(content.data).into_response();
-                    res.headers_mut().insert(axum::http::header::CONTENT_TYPE, axum::http::HeaderValue::from_static("image/svg+xml"));
-                    res
+                    let mime = mime_guess::from_path(name).first_or_octet_stream();
+                    axum::response::Response::builder()
+                        .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
+                        .body(axum::body::Body::from(content.data))
+                        .unwrap()
                 }
                 None => axum::http::StatusCode::NOT_FOUND.into_response(),
             }
-        }))
-        .nest_service("/assets", tower::service_fn(|req: axum::http::Request<axum::body::Body>| async move {
-            // `nest_service("/assets", ...)` はリクエストパスから `/assets` プレフィックスを取り除いて
-            // サービスに渡すため、ここで埋め込み資産の実パス `assets/...` に正規化する。
-            let mut path = req.uri().path().trim_start_matches('/').to_string();
-            if !path.starts_with("assets/") {
-                path = format!("assets/{}", path);
-            }
-            match Asset::get(&path) {
-                Some(content) => {
-                    let mime = mime_guess::from_path(&path).first_or_octet_stream();
-                    Ok::<_, std::convert::Infallible>(
-                        axum::response::Response::builder()
-                            .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
-                            .body(axum::body::Body::from(content.data))
-                            .unwrap()
-                    )
-                }
-                None => Ok::<_, std::convert::Infallible>(axum::http::StatusCode::NOT_FOUND.into_response()),
-            }
-        }))
-        .nest_service("/config", static_dir)
+        })
+    }
+
+    let mut public_static = Router::new()
+        .route("/vite.svg", serve_root_file("vite.svg"))
+        .route("/icon.svg", serve_root_file("icon.svg"))
+        .route("/manifest.webmanifest", serve_root_file("manifest.webmanifest"))
+        .route("/registerSW.js", serve_root_file("registerSW.js"))
+        .route("/sw.js", serve_root_file("sw.js"));
+
+    // Workbox emits a hashed filename like `workbox-fd0ffb34.js`. Enumerate them at startup
+    // so each file gets its own explicit route (avoids catch-all conflicts).
+    for file in Asset::iter() {
+        let name = file.as_ref();
+        if name.starts_with("workbox-") && name.ends_with(".js") && !name.contains('/') {
+            let owned: &'static str = Box::leak(name.to_string().into_boxed_str());
+            public_static = public_static.route(&format!("/{}", owned), serve_root_file(owned));
+        }
+    }
+
+    let public_static = public_static
+        .nest_service(
+            "/assets",
+            tower::service_fn(
+                |req: axum::http::Request<axum::body::Body>| async move {
+                    let mut path = req.uri().path().trim_start_matches('/').to_string();
+                    if !path.starts_with("assets/") {
+                        path = format!("assets/{}", path);
+                    }
+                    match Asset::get(&path) {
+                        Some(content) => {
+                            let mime = mime_guess::from_path(&path).first_or_octet_stream();
+                            Ok::<_, std::convert::Infallible>(
+                                axum::response::Response::builder()
+                                    .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
+                                    .header(
+                                        axum::http::header::CACHE_CONTROL,
+                                        "public, max-age=31536000, immutable",
+                                    )
+                                    .body(axum::body::Body::from(content.data))
+                                    .unwrap(),
+                            )
+                        }
+                        None => Ok::<_, std::convert::Infallible>(
+                            axum::http::StatusCode::NOT_FOUND.into_response(),
+                        ),
+                    }
+                },
+            ),
+        );
+
+    // 旧 admin UI (`/config/*`) は Phase 2.7 で完全に廃止。同等のパスへ 301 永続リダイレクトする。
+    // 例:
+    //   /config            → /console
+    //   /config/anything   → /console/anything
+    // 認証なしで素通しするため、`protected`(BasicAuth) より前に merge する。
+    async fn legacy_config_root(req: axum::http::Request<axum::body::Body>) -> axum::response::Response {
+        let target = match req.uri().query() {
+            Some(q) => format!("/console?{q}"),
+            None => "/console".to_string(),
+        };
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::MOVED_PERMANENTLY)
+            .header(axum::http::header::LOCATION, target)
+            .body(axum::body::Body::empty())
+            .unwrap()
+    }
+    async fn legacy_config_rest(
+        axum::extract::Path(rest): axum::extract::Path<String>,
+        req: axum::http::Request<axum::body::Body>,
+    ) -> axum::response::Response {
+        let target = match req.uri().query() {
+            Some(q) => format!("/console/{rest}?{q}"),
+            None => format!("/console/{rest}"),
+        };
+        axum::response::Response::builder()
+            .status(axum::http::StatusCode::MOVED_PERMANENTLY)
+            .header(axum::http::header::LOCATION, target)
+            .body(axum::body::Body::empty())
+            .unwrap()
+    }
+
+    let legacy_redirect = Router::new()
+        .route("/config", get(legacy_config_root))
+        .route("/config/", get(legacy_config_root))
+        .route("/config/*rest", get(legacy_config_rest));
+
+    // `/docs` は Phase 2.8 以降 React SPA の i18n DocsApp に移行。
+    // 既存 Markdown renderer は `/docs-md` に legacy として残す。
+    async fn docs_spa_index() -> axum::response::Response {
+        let html = Asset::get("index.html")
+            .map(|c| String::from_utf8_lossy(&c.data).to_string())
+            .unwrap_or_else(|| "<html><body>Docs UI not built.</body></html>".to_string());
+        axum::response::Response::builder()
+            .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .header(axum::http::header::CACHE_CONTROL, "no-cache")
+            .body(axum::body::Body::from(html))
+            .unwrap()
+    }
+
+    let docs_spa = Router::new()
+        .route("/docs", get(docs_spa_index))
+        .route("/docs/", get(docs_spa_index))
+        .route("/docs/*rest", get(docs_spa_index));
+
+    let protected = Router::new()
+        // /console/* は新 SPA。BasicAuth 配下で配信。
+        .nest_service("/console", tower::service_fn(spa_static_handler))
         .layer(axum::middleware::from_fn_with_state(
             pool.clone(),
-            auth::basic_auth,
+            auth::basic_auth_legacy,
         ));
 
+    let api_state = api::routes::ApiState {
+        pool: pool.clone(),
+        relay_pool: relay_pool.clone(),
+        settings: settings.clone(),
+        ip_acl: ip_acl.clone(),
+        session_registry: session_registry.clone(),
+        event_bus: event_bus.clone(),
+    };
+
+    // 公開 API（認証なし）。LP の status 表示など。BasicAuth の `/api` の前に
+    // nest しないと auth に飲まれるので、必ず先に置く。
+    let public_api_state = api::public::PublicCacheState::new(api_state.clone());
+
     let app = Router::new()
+        .merge(public_static)
+        .merge(legacy_redirect)
+        .merge(docs_spa)
+        .nest("/docs-md", docs::router())
         .merge(protected)
-        .nest("/api", api::routes::router(pool.clone(), relay_pool))
-        .nest("/docs", docs::router())
+        .nest("/api/public", api::public::router(public_api_state))
+        .nest("/api", api::routes::router(api_state, auth_throttle.clone()))
         .route(
             "/",
             get({
                 let pool = pool.clone();
-                let landing_config = landing_config.clone();
+                let proxy_ctx = proxy_ctx.clone();
                 move |ws: Option<WebSocketUpgrade>, headers: HeaderMap, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
                     let pool = pool.clone();
-                    let landing_config = landing_config.clone();
+                    let proxy_ctx = proxy_ctx.clone();
                     let client_ip = addr.ip().to_string();
                     async move {
-                        // Check for NIP-11 request (Accept: application/nostr+json)
-                        let accept_header = headers.get(ACCEPT)
+                        let accept_header = headers
+                            .get(ACCEPT)
                             .and_then(|v| v.to_str().ok())
                             .unwrap_or("");
-                        
+
                         if accept_header.contains("application/nostr+json") {
-                            // NIP-11: Return relay information document
                             let info = get_nip11_info(&pool).await;
                             return (
                                 [(axum::http::header::CONTENT_TYPE, "application/nostr+json")],
                                 Json(info),
-                            ).into_response();
+                            )
+                                .into_response();
                         }
-                        
+
                         match ws {
                             Some(ws) => {
-                                // WebSocket接続の場合
                                 tracing::info!(ip = %client_ip, "WebSocket upgrade request received");
                                 ws.on_upgrade(move |socket| async move {
-                                    // DBから有効なリレーURLを取得
                                     let backend_url = get_backend_relay_url(&pool).await;
                                     if backend_url.is_empty() {
-                                        tracing::warn!(ip = %client_ip, "No backend relay configured, closing connection");
+                                        tracing::warn!(ip = %client_ip, "No backend relay configured");
                                         return;
                                     }
-                                    tracing::info!(ip = %client_ip, backend_url = %backend_url, "Starting WebSocket proxy");
-                                    if let Err(e) =
-                                        crate::proxy::ws_proxy::proxy_ws_with_pool(socket, backend_url, Some(pool), Some(client_ip.clone())).await
+                                    if let Err(e) = crate::proxy::ws_proxy::proxy_ws_with_ctx(
+                                        socket,
+                                        backend_url,
+                                        proxy_ctx,
+                                        client_ip.clone(),
+                                    )
+                                    .await
                                     {
                                         tracing::warn!(ip = %client_ip, error = %e, "WebSocket proxy ended with error");
-                                    } else {
-                                        tracing::info!(ip = %client_ip, "WebSocket proxy ended normally");
                                     }
-                                }).into_response()
+                                })
+                                .into_response()
                             }
+                            // 通常の HTML アクセスは SPA の index.html を返す。
+                            // Vite ビルド成果物を rust-embed で同梱しており、`web/src/landing/`
+                            // が PROFILER LP として描画される。
                             None => {
-                                // HTTP GETの場合はランディングページを表示
-                                docs::serve_landing_page(&landing_config).into_response()
+                                let html = Asset::get("index.html")
+                                    .map(|c| String::from_utf8_lossy(&c.data).to_string())
+                                    .unwrap_or_else(|| {
+                                        "<html><body>Landing page not built.</body></html>".to_string()
+                                    });
+                                axum::response::Response::builder()
+                                    .header(
+                                        axum::http::header::CONTENT_TYPE,
+                                        "text/html; charset=utf-8",
+                                    )
+                                    .header(axum::http::header::CACHE_CONTROL, "no-cache")
+                                    .body(axum::body::Body::from(html))
+                                    .unwrap()
+                                    .into_response()
                             }
                         }
                     }
                 }
             }),
         )
-        .route(
-            "/healthz",
-            get(|| async { axum::http::StatusCode::OK }),
-        );
+        .route("/healthz", get(|| async { axum::http::StatusCode::OK }));
 
     let addr: SocketAddr = "127.0.0.1:8080".parse()?;
     tracing::info!(%addr, "listening");
