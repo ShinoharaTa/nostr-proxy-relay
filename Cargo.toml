@@ -1,6 +1,6 @@
 [package]
 name = "proxy-nostr-relay"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["ShinoharaTa"]
 description = "A Nostr proxy relay with advanced bot filtering and an admin UI."
