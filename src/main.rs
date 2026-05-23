@@ -136,6 +136,7 @@ fn cleanup_old_log_files(log_dir: &Path, retention: Duration) -> anyhow::Result<
 }
 
 /// DBから有効なバックエンドリレーURLを取得
+#[allow(dead_code)]
 async fn get_backend_relay_url(pool: &SqlitePool) -> String {
     let result: Option<(String,)> = sqlx::query_as(
         "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC LIMIT 1"
@@ -145,6 +146,19 @@ async fn get_backend_relay_url(pool: &SqlitePool) -> String {
     .unwrap_or(None);
     
     result.map(|(url,)| url).unwrap_or_default()
+}
+
+/// DBから有効なバックエンドリレーURLをすべて取得
+async fn get_backend_relay_urls(pool: &SqlitePool) -> Vec<String> {
+    sqlx::query_as::<_, (String,)>(
+        "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(url,)| url)
+    .collect()
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -565,14 +579,14 @@ async fn main() -> anyhow::Result<()> {
                             Some(ws) => {
                                 tracing::info!(ip = %client_ip, "WebSocket upgrade request received");
                                 ws.on_upgrade(move |socket| async move {
-                                    let backend_url = get_backend_relay_url(&pool).await;
-                                    if backend_url.is_empty() {
+                                    let backend_urls = get_backend_relay_urls(&pool).await;
+                                    if backend_urls.is_empty() {
                                         tracing::warn!(ip = %client_ip, "No backend relay configured");
                                         return;
                                     }
-                                    if let Err(e) = crate::proxy::ws_proxy::proxy_ws_with_ctx(
+                                    if let Err(e) = crate::proxy::ws_proxy::proxy_ws_fanout_with_ctx(
                                         socket,
-                                        backend_url,
+                                        backend_urls,
                                         proxy_ctx,
                                         client_ip.clone(),
                                     )
