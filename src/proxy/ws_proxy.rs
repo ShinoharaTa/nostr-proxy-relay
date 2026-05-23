@@ -89,7 +89,11 @@ fn spawn_backend_worker(
 
             loop {
                 tokio::select! {
-                    Some(command) = command_rx.recv() => {
+                    command = command_rx.recv() => {
+                        let Some(command) = command else {
+                            tracing::debug!(backend_url = %url, "backend worker command channel closed");
+                            return;
+                        };
                         if backend_tx.send(command).await.is_err() {
                             break;
                         }
@@ -164,6 +168,12 @@ fn remember_limited(seen: &mut HashSet<String>, order: &mut VecDeque<String>, id
         }
     }
     true
+}
+
+fn forget_sub_seen(seen: &mut HashSet<String>, order: &mut VecDeque<String>, sub_id: &str) {
+    let prefix = format!("{sub_id}:");
+    seen.retain(|key| !key.starts_with(&prefix));
+    order.retain(|key| !key.starts_with(&prefix));
 }
 
 fn text_msg_type(text: &str) -> Option<String> {
@@ -344,6 +354,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                                     sub_id.clone(),
                                     ReqCacheEntry { req_text: text.clone(), eose_autoclose },
                                 );
+                                forget_sub_seen(&mut seen_event_ids, &mut seen_event_order, sub_id);
                                 eose_seen.remove(sub_id);
                                 eose_deadlines.remove(sub_id);
                                 closed_seen.remove(sub_id);
@@ -351,6 +362,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                             }
                             Ok(ClientMsg::Close { ref sub_id }) => {
                                 req_cache.write().await.remove(sub_id);
+                                forget_sub_seen(&mut seen_event_ids, &mut seen_event_order, sub_id);
                                 eose_seen.remove(sub_id);
                                 eose_deadlines.remove(sub_id);
                                 closed_seen.remove(sub_id);
