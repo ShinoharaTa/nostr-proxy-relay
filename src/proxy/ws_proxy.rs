@@ -89,7 +89,11 @@ fn spawn_backend_worker(
 
             loop {
                 tokio::select! {
-                    Some(command) = command_rx.recv() => {
+                    command = command_rx.recv() => {
+                        let Some(command) = command else {
+                            tracing::debug!(backend_url = %url, "backend worker command channel closed");
+                            return;
+                        };
                         if backend_tx.send(command).await.is_err() {
                             break;
                         }
