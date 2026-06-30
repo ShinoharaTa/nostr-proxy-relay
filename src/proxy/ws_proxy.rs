@@ -22,6 +22,30 @@ const PING_INTERVAL_SECS: u64 = 30;
 const CLIENT_TIMEOUT_SECS: u64 = 120;
 const BACKEND_TIMEOUT_SECS: u64 = 90;
 const EOSE_FANOUT_GRACE_MS: u64 = 1500;
+/// バックエンド再接続のバックオフ下限/上限（ミリ秒）
+const BACKEND_RECONNECT_MIN_MS: u64 = 1000;
+const BACKEND_RECONNECT_MAX_MS: u64 = 60_000;
+/// この秒数以上接続を維持できた場合のみバックオフをリセットする（flap 連発抑制）
+const BACKEND_STABLE_RESET_SECS: u64 = 30;
+
+/// 指数バックオフ + equal jitter でスリープし、次回の base を返す。
+/// 不安定な上流に対して再接続が同期して殺到する（thundering herd）のを防ぐ。
+/// 依存追加を避けるため、ジッタの乱数源には現在時刻のナノ秒を使う。
+async fn backoff_sleep(base_ms: u64) -> u64 {
+    let half = base_ms / 2;
+    let jitter = if half > 0 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64)
+            .unwrap_or(0);
+        nanos % (half + 1)
+    } else {
+        0
+    };
+    let sleep_ms = half + jitter;
+    tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+    base_ms.saturating_mul(2).min(BACKEND_RECONNECT_MAX_MS)
+}
 
 #[derive(Debug, Clone)]
 struct ReqCacheEntry {
@@ -52,27 +76,29 @@ fn spawn_backend_worker(
     req_cache: Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
 ) {
     tokio::spawn(async move {
+        let mut backoff_ms = BACKEND_RECONNECT_MIN_MS;
         loop {
-            tracing::info!(backend_url = %url, "Connecting to backend relay");
+            tracing::debug!(backend_url = %url, "Connecting to backend relay");
             let backend_ws = match connect_async(&url).await {
                 Ok((ws, resp)) => {
-                    tracing::info!(backend_url = %url, status = ?resp.status(), "Backend relay connected");
+                    tracing::debug!(backend_url = %url, status = ?resp.status(), "Backend relay connected");
                     ws
                 }
                 Err(e) => {
-                    tracing::warn!(backend_url = %url, error = %e, "backend connect failed, retrying");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    tracing::debug!(backend_url = %url, error = %e, "backend connect failed, backing off");
+                    backoff_ms = backoff_sleep(backoff_ms).await;
                     continue;
                 }
             };
 
+            let connected_at = Instant::now();
             let (mut backend_tx, mut backend_rx) = backend_ws.split();
             let mut last_backend_activity = Instant::now();
 
             {
                 let cached = req_cache.read().await;
                 for (sub_id, entry) in cached.iter() {
-                    tracing::info!(backend_url = %url, sub_id = %sub_id, "Resending cached REQ");
+                    tracing::debug!(backend_url = %url, sub_id = %sub_id, "Resending cached REQ");
                     if backend_tx
                         .send(TungMessage::Text(entry.req_text.clone()))
                         .await
@@ -131,7 +157,7 @@ fn spawn_backend_worker(
                     }
                     _ = backend_ping.tick() => {
                         if last_backend_activity.elapsed() > std::time::Duration::from_secs(BACKEND_TIMEOUT_SECS) {
-                            tracing::warn!(backend_url = %url, "backend timeout");
+                            tracing::debug!(backend_url = %url, "backend timeout");
                             break;
                         }
                         if backend_tx.send(TungMessage::Ping(vec![])).await.is_err() {
@@ -141,8 +167,12 @@ fn spawn_backend_worker(
                 }
             }
 
-            tracing::info!(backend_url = %url, "backend disconnected, reconnecting");
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            // 安定して接続できていた場合のみバックオフをリセット（flap 連発を抑制）
+            if connected_at.elapsed() >= std::time::Duration::from_secs(BACKEND_STABLE_RESET_SECS) {
+                backoff_ms = BACKEND_RECONNECT_MIN_MS;
+            }
+            tracing::debug!(backend_url = %url, "backend disconnected, reconnecting");
+            backoff_ms = backoff_sleep(backoff_ms).await;
         }
     });
 }
