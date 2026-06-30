@@ -156,6 +156,39 @@ fn send_to_backends(
     }
 }
 
+/// 有効なバックエンドリレー URL を DB から取得する（接続中の再読込用）。
+async fn load_backend_urls(pool: &SqlitePool) -> Vec<String> {
+    sqlx::query_as::<_, (String,)>(
+        "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(url,)| url)
+    .collect()
+}
+
+/// 与えられた URL 群に対して backend worker を起動し、送信用 channel を返す。
+fn spawn_backends(
+    urls: &[String],
+    backend_inbound_tx: &tokio::sync::mpsc::UnboundedSender<BackendInbound>,
+    req_cache: &Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
+) -> Vec<tokio::sync::mpsc::UnboundedSender<TungMessage>> {
+    let mut txs = Vec::with_capacity(urls.len());
+    for url in urls {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        txs.push(tx);
+        spawn_backend_worker(
+            url.clone(),
+            rx,
+            backend_inbound_tx.clone(),
+            Arc::clone(req_cache),
+        );
+    }
+    txs
+}
+
 fn remember_limited(seen: &mut HashSet<String>, order: &mut VecDeque<String>, id: String) -> bool {
     const MAX_SEEN_EVENTS: usize = 10_000;
     if !seen.insert(id.clone()) {
@@ -273,23 +306,14 @@ pub async fn proxy_ws_fanout_with_ctx(
         Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let (backend_inbound_tx, mut backend_inbound_rx) =
         tokio::sync::mpsc::unbounded_channel::<BackendInbound>();
-    let mut backend_txs = Vec::with_capacity(backend_urls.len());
-    let backend_count = backend_urls.len();
-    for url in backend_urls {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        backend_txs.push(tx);
-        spawn_backend_worker(
-            url,
-            rx,
-            backend_inbound_tx.clone(),
-            Arc::clone(&req_cache),
-        );
-    }
+    let mut backend_urls = backend_urls;
+    let mut backend_txs = spawn_backends(&backend_urls, &backend_inbound_tx, &req_cache);
+    let mut backend_count = backend_urls.len();
 
     let mut last_client_activity = Instant::now();
     let mut settings_watch = ctx.settings.watch();
-    let parse_limits = load_parse_limits(&ctx.pool).await;
-    let max_subscriptions = load_max_subscriptions(&ctx.pool).await;
+    let mut parse_limits = load_parse_limits(&ctx.pool).await;
+    let mut max_subscriptions = load_max_subscriptions(&ctx.pool).await;
     let mut client_ping = tokio::time::interval(std::time::Duration::from_secs(PING_INTERVAL_SECS));
     client_ping.tick().await;
     let mut seen_event_ids = HashSet::new();
@@ -311,7 +335,32 @@ pub async fn proxy_ws_fanout_with_ctx(
             }
 
             _ = settings_watch.changed() => {
-                tracing::debug!(ip = %client_ip, "settings reloaded");
+                // limit 系は次回パースから即反映
+                parse_limits = load_parse_limits(&ctx.pool).await;
+                max_subscriptions = load_max_subscriptions(&ctx.pool).await;
+
+                // 有効リレー集合が変わっていれば backend worker を作り直す。
+                // 旧 sender を drop すると、各 worker は command channel close を検知して終了する。
+                let new_urls = load_backend_urls(&ctx.pool).await;
+                if new_urls != backend_urls {
+                    tracing::info!(
+                        ip = %client_ip,
+                        old = backend_urls.len(),
+                        new = new_urls.len(),
+                        "relay set changed; rebuilding backend connections",
+                    );
+                    backend_txs.clear();
+                    backend_urls = new_urls;
+                    backend_count = backend_urls.len();
+                    // 新 worker は接続時に req_cache の REQ を再送するため、購読は引き継がれる。
+                    backend_txs = spawn_backends(&backend_urls, &backend_inbound_tx, &req_cache);
+                    // backend_count が変わるので EOSE / CLOSED の集約状態をリセット。
+                    eose_seen.clear();
+                    eose_deadlines.clear();
+                    closed_seen.clear();
+                } else {
+                    tracing::debug!(ip = %client_ip, "settings reloaded (limits refreshed)");
+                }
             }
 
             msg = client_rx.next() => {

@@ -290,6 +290,8 @@ async fn put_relays(State(s): State<ApiState>, Json(body): Json<PutRelaysBody>) 
         .execute(&s.pool)
         .await;
     }
+    // live な fanout 接続にバックエンドリレーの変更を再起動なしで反映させる。
+    s.settings.notify();
     Json(())
 }
 
@@ -1607,6 +1609,9 @@ async fn put_relay_info(State(s): State<ApiState>, Json(body): Json<RelayInfoRow
     .execute(&s.pool)
     .await;
 
+    // NIP-11 limitation（max_message_length / max_subscriptions など）の変更を
+    // live な接続にも再起動なしで反映させる。
+    s.settings.notify();
     Json(())
 }
 
