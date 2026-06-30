@@ -139,6 +139,13 @@ impl SettingsCache {
         Ok(())
     }
 
+    /// DB を再読込せずに変更通知だけ発火する。
+    /// relay_config / relay_info など SettingsCache 管理外の設定が変わったときに、
+    /// live な接続へ再読込（バックエンド再構築・limit 反映）を促すために使う。
+    pub fn notify(&self) {
+        let _ = self.bump_tx.send(self.bump_tx.borrow().wrapping_add(1));
+    }
+
     /// 設定変更通知を受け取る。
     pub fn watch(&self) -> watch::Receiver<u64> {
         self.bump_rx.clone()
