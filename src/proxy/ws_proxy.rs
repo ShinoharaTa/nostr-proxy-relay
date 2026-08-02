@@ -22,6 +22,8 @@ const PING_INTERVAL_SECS: u64 = 30;
 const CLIENT_TIMEOUT_SECS: u64 = 120;
 const BACKEND_TIMEOUT_SECS: u64 = 90;
 const EOSE_FANOUT_GRACE_MS: u64 = 1500;
+/// REQ 受信からこの時間で必ず EOSE を返す保険（全上流が無応答でもクライアントを待たせない）
+const EOSE_MAX_WAIT_MS: u64 = 10_000;
 /// バックエンド再接続のバックオフ下限/上限（ミリ秒）
 const BACKEND_RECONNECT_MIN_MS: u64 = 1000;
 const BACKEND_RECONNECT_MAX_MS: u64 = 60_000;
@@ -63,10 +65,18 @@ pub struct ProxyContext {
     pub event_bus: Arc<LiveEventBus>,
 }
 
+/// backend worker を世代をまたいで一意に識別する ID の採番元。
+/// 再構築後に旧 worker から届く遅延メッセージが新しい集約状態を汚染しないよう、URL ではなく ID で追跡する。
+static NEXT_WORKER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Debug)]
-struct BackendInbound {
-    url: String,
-    message: TungMessage,
+enum BackendInbound {
+    /// 上流リレーへの接続が確立した
+    Connected { worker_id: u64 },
+    /// 上流リレーとの接続が切れた（再接続待ちに入る）
+    Disconnected { worker_id: u64 },
+    /// 上流リレーからのメッセージ
+    Message { worker_id: u64, message: TungMessage },
 }
 
 fn spawn_backend_worker(
@@ -75,6 +85,7 @@ fn spawn_backend_worker(
     inbound_tx: tokio::sync::mpsc::UnboundedSender<BackendInbound>,
     req_cache: Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
 ) {
+    let worker_id = NEXT_WORKER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     tokio::spawn(async move {
         let mut backoff_ms = BACKEND_RECONNECT_MIN_MS;
         loop {
@@ -94,6 +105,9 @@ fn spawn_backend_worker(
             let connected_at = Instant::now();
             let (mut backend_tx, mut backend_rx) = backend_ws.split();
             let mut last_backend_activity = Instant::now();
+            // 親ループに「このバックエンドは応答を期待してよい」ことを知らせる。
+            // channel は順序保証されるため、以降のメッセージより先に必ず届く。
+            let _ = inbound_tx.send(BackendInbound::Connected { worker_id });
 
             {
                 let cached = req_cache.read().await;
@@ -128,15 +142,15 @@ fn spawn_backend_worker(
                         match msg {
                             Some(Ok(TungMessage::Text(text))) => {
                                 last_backend_activity = Instant::now();
-                                let _ = inbound_tx.send(BackendInbound {
-                                    url: url.clone(),
+                                let _ = inbound_tx.send(BackendInbound::Message {
+                                    worker_id,
                                     message: TungMessage::Text(text),
                                 });
                             }
                             Some(Ok(TungMessage::Binary(bin))) => {
                                 last_backend_activity = Instant::now();
-                                let _ = inbound_tx.send(BackendInbound {
-                                    url: url.clone(),
+                                let _ = inbound_tx.send(BackendInbound::Message {
+                                    worker_id,
                                     message: TungMessage::Binary(bin),
                                 });
                             }
@@ -167,6 +181,8 @@ fn spawn_backend_worker(
                 }
             }
 
+            // 親ループに切断を通知し、この worker を EOSE/CLOSED の集約待ちから外してもらう。
+            let _ = inbound_tx.send(BackendInbound::Disconnected { worker_id });
             // 安定して接続できていた場合のみバックオフをリセット（flap 連発を抑制）
             if connected_at.elapsed() >= std::time::Duration::from_secs(BACKEND_STABLE_RESET_SECS) {
                 backoff_ms = BACKEND_RECONNECT_MIN_MS;
@@ -231,6 +247,39 @@ fn remember_limited(seen: &mut HashSet<String>, order: &mut VecDeque<String>, id
         }
     }
     true
+}
+
+/// 現在接続中のすべてのバックエンドから応答（EOSE/CLOSED）が揃ったか。
+/// 切断中のバックエンドは待たない。connected が空なら true（デッドラインが保険になる）。
+fn all_connected_responded(connected: &HashSet<u64>, seen: &HashSet<u64>) -> bool {
+    connected.iter().all(|id| seen.contains(id))
+}
+
+/// EOSE をクライアントへ送り、autoclose 対象の購読なら上流へ CLOSE を送る。
+async fn finish_eose(
+    sub_id: &str,
+    eose_text: Option<String>,
+    is_shadow: bool,
+    client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    req_cache: &Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
+    backend_txs: &[tokio::sync::mpsc::UnboundedSender<TungMessage>],
+) {
+    if !is_shadow {
+        let text =
+            eose_text.unwrap_or_else(|| serde_json::json!(["EOSE", sub_id]).to_string());
+        let _ = client_out_tx.send(Message::Text(text));
+    }
+    let should_close = req_cache
+        .read()
+        .await
+        .get(sub_id)
+        .map(|entry| entry.eose_autoclose)
+        .unwrap_or(false);
+    if should_close {
+        req_cache.write().await.remove(sub_id);
+        let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
+        send_to_backends(backend_txs, TungMessage::Text(close_msg));
+    }
 }
 
 fn forget_sub_seen(seen: &mut HashSet<String>, order: &mut VecDeque<String>, sub_id: &str) {
@@ -338,7 +387,9 @@ pub async fn proxy_ws_fanout_with_ctx(
         tokio::sync::mpsc::unbounded_channel::<BackendInbound>();
     let mut backend_urls = backend_urls;
     let mut backend_txs = spawn_backends(&backend_urls, &backend_inbound_tx, &req_cache);
-    let mut backend_count = backend_urls.len();
+    // 現在接続が確立している backend worker の ID 集合。
+    // EOSE/CLOSED の集約は「接続中のバックエンド」だけを待つ（落ちているリレーを待たない）。
+    let mut connected_backends: HashSet<u64> = HashSet::new();
 
     let mut last_client_activity = Instant::now();
     let mut settings_watch = ctx.settings.watch();
@@ -350,10 +401,10 @@ pub async fn proxy_ws_fanout_with_ctx(
     let mut seen_event_order = VecDeque::new();
     let mut seen_ok_ids = HashSet::new();
     let mut seen_ok_order = VecDeque::new();
-    let mut eose_seen: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut eose_seen: HashMap<String, HashSet<u64>> = HashMap::new();
     let mut eose_deadlines: HashMap<String, Instant> = HashMap::new();
-    let mut closed_seen: HashMap<String, (HashSet<String>, String)> = HashMap::new();
-    let mut eose_sweep = tokio::time::interval(std::time::Duration::from_millis(500));
+    let mut closed_seen: HashMap<String, (HashSet<u64>, String)> = HashMap::new();
+    let mut eose_sweep = tokio::time::interval(std::time::Duration::from_millis(100));
     eose_sweep.tick().await;
 
     loop {
@@ -381,10 +432,11 @@ pub async fn proxy_ws_fanout_with_ctx(
                     );
                     backend_txs.clear();
                     backend_urls = new_urls;
-                    backend_count = backend_urls.len();
                     // 新 worker は接続時に req_cache の REQ を再送するため、購読は引き継がれる。
                     backend_txs = spawn_backends(&backend_urls, &backend_inbound_tx, &req_cache);
-                    // backend_count が変わるので EOSE / CLOSED の集約状態をリセット。
+                    // worker 世代が変わるので接続集合と EOSE / CLOSED の集約状態をリセット。
+                    // 旧 worker からの遅延 Disconnected は新 worker_id と衝突しないため無害。
+                    connected_backends.clear();
                     eose_seen.clear();
                     eose_deadlines.clear();
                     closed_seen.clear();
@@ -435,8 +487,13 @@ pub async fn proxy_ws_fanout_with_ctx(
                                 );
                                 forget_sub_seen(&mut seen_event_ids, &mut seen_event_order, sub_id);
                                 eose_seen.remove(sub_id);
-                                eose_deadlines.remove(sub_id);
                                 closed_seen.remove(sub_id);
+                                // 全上流が無応答でも必ず EOSE を返すための保険デッドライン。
+                                // 上流から EOSE が届き始めたら EOSE_FANOUT_GRACE_MS に短縮される。
+                                eose_deadlines.insert(
+                                    sub_id.clone(),
+                                    Instant::now() + std::time::Duration::from_millis(EOSE_MAX_WAIT_MS),
+                                );
                                 send_to_backends(&backend_txs, TungMessage::Text(text));
                             }
                             Ok(ClientMsg::Close { ref sub_id }) => {
@@ -502,7 +559,49 @@ pub async fn proxy_ws_fanout_with_ctx(
                 let Some(inbound) = inbound else {
                     break;
                 };
-                match inbound.message {
+                let (worker_id, message) = match inbound {
+                    BackendInbound::Connected { worker_id } => {
+                        connected_backends.insert(worker_id);
+                        continue;
+                    }
+                    BackendInbound::Disconnected { worker_id } => {
+                        connected_backends.remove(&worker_id);
+                        // この worker の応答を待っていた保留中の集約を再評価する。
+                        // （切断されたバックエンドを待ち続けて EOSE/CLOSED が遅延・欠落するのを防ぐ）
+                        let ready_eose: Vec<String> = eose_seen
+                            .iter()
+                            .filter(|(_, seen)| {
+                                !seen.is_empty() && all_connected_responded(&connected_backends, seen)
+                            })
+                            .map(|(sub_id, _)| sub_id.clone())
+                            .collect();
+                        for sub_id in ready_eose {
+                            eose_seen.remove(&sub_id);
+                            eose_deadlines.remove(&sub_id);
+                            finish_eose(&sub_id, None, is_shadow, &client_out_tx, &req_cache, &backend_txs).await;
+                        }
+                        let ready_closed: Vec<String> = closed_seen
+                            .iter()
+                            .filter(|(_, (seen, _))| {
+                                !seen.is_empty() && all_connected_responded(&connected_backends, seen)
+                            })
+                            .map(|(sub_id, _)| sub_id.clone())
+                            .collect();
+                        for sub_id in ready_closed {
+                            req_cache.write().await.remove(&sub_id);
+                            eose_seen.remove(&sub_id);
+                            eose_deadlines.remove(&sub_id);
+                            if let Some((_, latest)) = closed_seen.remove(&sub_id) {
+                                if !is_shadow {
+                                    let _ = client_out_tx.send(Message::Text(latest));
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    BackendInbound::Message { worker_id, message } => (worker_id, message),
+                };
+                match message {
                     TungMessage::Text(text) => {
                         let msg_type = text_msg_type(&text);
                         match msg_type.as_deref() {
@@ -550,46 +649,51 @@ pub async fn proxy_ws_fanout_with_ctx(
                                 let Some(sub_id) = text_sub_id(&text) else {
                                     continue;
                                 };
-                                let seen = eose_seen.entry(sub_id.clone()).or_default();
-                                seen.insert(inbound.url);
+                                let done = {
+                                    let seen = eose_seen.entry(sub_id.clone()).or_default();
+                                    seen.insert(worker_id);
+                                    // 接続中のバックエンドが全部揃えば即完了（落ちているリレーは待たない）
+                                    all_connected_responded(&connected_backends, seen)
+                                };
+                                // 最初の EOSE が届いたら、残りは短い猶予だけ待つ
+                                let tightened = Instant::now()
+                                    + std::time::Duration::from_millis(EOSE_FANOUT_GRACE_MS);
                                 eose_deadlines
                                     .entry(sub_id.clone())
-                                    .or_insert_with(|| Instant::now() + std::time::Duration::from_millis(EOSE_FANOUT_GRACE_MS));
-                                if seen.len() >= backend_count {
+                                    .and_modify(|d| {
+                                        if tightened < *d {
+                                            *d = tightened;
+                                        }
+                                    })
+                                    .or_insert(tightened);
+                                if done {
                                     eose_seen.remove(&sub_id);
                                     eose_deadlines.remove(&sub_id);
-                                    if !is_shadow {
-                                        let _ = client_out_tx.send(Message::Text(text));
-                                    }
-                                    let should_close = req_cache
-                                        .read()
-                                        .await
-                                        .get(&sub_id)
-                                        .map(|entry| entry.eose_autoclose)
-                                        .unwrap_or(false);
-                                    if should_close {
-                                        req_cache.write().await.remove(&sub_id);
-                                        let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
-                                        send_to_backends(&backend_txs, TungMessage::Text(close_msg));
-                                    }
+                                    finish_eose(&sub_id, Some(text), is_shadow, &client_out_tx, &req_cache, &backend_txs).await;
                                 }
                             }
                             Some("CLOSED") => {
                                 let Some(sub_id) = text_sub_id(&text) else {
                                     continue;
                                 };
-                                let (seen, latest_text) = closed_seen
-                                    .entry(sub_id.clone())
-                                    .or_insert_with(|| (HashSet::new(), text.clone()));
-                                seen.insert(inbound.url);
-                                *latest_text = text;
-                                if seen.len() >= backend_count {
+                                let done = {
+                                    let (seen, latest_text) = closed_seen
+                                        .entry(sub_id.clone())
+                                        .or_insert_with(|| (HashSet::new(), text.clone()));
+                                    seen.insert(worker_id);
+                                    *latest_text = text;
+                                    // 接続中のバックエンド全部が CLOSED を返した場合のみクライアントへ転送。
+                                    // 一部だけが CLOSED（auth-required 等）で他が配信継続中なら購読を維持する。
+                                    all_connected_responded(&connected_backends, seen)
+                                };
+                                if done {
                                     req_cache.write().await.remove(&sub_id);
                                     eose_seen.remove(&sub_id);
                                     eose_deadlines.remove(&sub_id);
-                                    let (_, latest) = closed_seen.remove(&sub_id).unwrap();
-                                    if !is_shadow {
-                                        let _ = client_out_tx.send(Message::Text(latest));
+                                    if let Some((_, latest)) = closed_seen.remove(&sub_id) {
+                                        if !is_shadow {
+                                            let _ = client_out_tx.send(Message::Text(latest));
+                                        }
                                     }
                                 }
                             }
@@ -644,22 +748,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                 for sub_id in expired {
                     eose_seen.remove(&sub_id);
                     eose_deadlines.remove(&sub_id);
-                    if !is_shadow {
-                        let _ = client_out_tx.send(Message::Text(
-                            serde_json::json!(["EOSE", sub_id.clone()]).to_string(),
-                        ));
-                    }
-                    let should_close = req_cache
-                        .read()
-                        .await
-                        .get(&sub_id)
-                        .map(|entry| entry.eose_autoclose)
-                        .unwrap_or(false);
-                    if should_close {
-                        req_cache.write().await.remove(&sub_id);
-                        let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
-                        send_to_backends(&backend_txs, TungMessage::Text(close_msg));
-                    }
+                    finish_eose(&sub_id, None, is_shadow, &client_out_tx, &req_cache, &backend_txs).await;
                 }
             }
         }
