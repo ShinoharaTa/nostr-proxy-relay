@@ -3,6 +3,7 @@ import { Card, Button, Pill, StatusDot, Tag } from '../primitives';
 import { Icon } from '../icons/Icon';
 import type { LiveEvent } from '../api';
 import { ago, shortTimeOnly } from '../utils/format';
+import { useI18n } from '../i18n';
 
 const FILTERS = [
   { id: 'all',       label: 'ALL' },
@@ -23,6 +24,7 @@ const MAX_BUFFER = 500;
  * - スマホ等幅 + カード化
  */
 export function LiveEvents() {
+  const { t } = useI18n();
   const [filter, setFilter] = useState('all');
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(paused);
@@ -104,7 +106,7 @@ export function LiveEvents() {
         {visible.length === 0 ? (
           <div className="crt-empty">
             <div className="crt-empty__title">{paused ? 'PAUSED' : 'WAITING FOR EVENTS'}</div>
-            <div>{paused ? 'pause を解除するとストリームが再開します' : 'まだイベントが届いていません'}</div>
+            <div>{paused ? t.live.pausedHint : t.live.emptyHint}</div>
           </div>
         ) : (
           <ul className="live-stream">

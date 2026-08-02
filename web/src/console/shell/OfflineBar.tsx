@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useI18n } from '../i18n';
 
 /**
  * ネット切断中・API 連続失敗中に画面上部に出る永続バー (docs/ui_redesign_ja.md §7.6)。
@@ -25,6 +26,7 @@ function isOffline(): boolean {
 }
 
 export function OfflineBar() {
+  const { t } = useI18n();
   const [offline, setOffline] = useState<boolean>(() => isOffline());
 
   useEffect(() => {
@@ -52,9 +54,7 @@ export function OfflineBar() {
     <div className="crt-offline-bar" role="status" aria-live="polite">
       <span className="crt-offline-bar__dot" aria-hidden="true" />
       <span className="crt-offline-bar__text">
-        {navigator.onLine === false
-          ? 'OFFLINE — ブラウザがネットワークから切断されています'
-          : 'API に到達できません — リレーが停止中か、ネットワーク経路に問題があります'}
+        {navigator.onLine === false ? t.offline.browserOffline : t.offline.apiUnreachable}
       </span>
     </div>
   );

@@ -3,8 +3,10 @@ import { Card, Button, DataList, type Column, Drawer, Modal, Tag, useToast } fro
 import { Icon } from '../icons/Icon';
 import { Filters as FiltersApi, Translate } from '../api';
 import type { FilterRow, DryRunResult } from '../api';
+import { useI18n } from '../i18n';
 
 export function DslRulesPage() {
+  const { t } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState<FilterRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -15,9 +17,9 @@ export function DslRulesPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm('削除しますか？')) return;
-    try { await FiltersApi.remove(id); toast.push({ variant: 'ok', message: '削除しました' }); reload(); }
-    catch (e) { toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` }); }
+    if (!confirm(t.common.confirmDelete)) return;
+    try { await FiltersApi.remove(id); toast.push({ variant: 'ok', message: t.common.deleted }); reload(); }
+    catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };
 
   const toggleEnabled = async (r: FilterRow) => {
@@ -29,7 +31,7 @@ export function DslRulesPage() {
       if (!res.success) throw new Error(res.error || 'unknown');
       reload();
     } catch (e) {
-      toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
     }
   };
 
@@ -66,7 +68,7 @@ export function DslRulesPage() {
         actions={<Button variant="primary" onClick={() => { setEditing(null); setDrawerOpen(true); }}><Icon name="plus" /> ADD</Button>}
       >
         <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id)}
-          emptyTitle="NO RULES" emptyHint="Filter Query Language で複雑な拒否条件を書けます" />
+          emptyTitle="NO RULES" emptyHint={t.dsl.emptyHint} />
       </Card>
 
       <EditDrawer
@@ -88,6 +90,7 @@ interface EditProps {
   onSaved: () => void;
 }
 function EditDrawer({ open, onClose, editing, onSaved }: EditProps) {
+  const { t } = useI18n();
   const toast = useToast();
   const [name, setName] = useState('');
   const [dsl, setDsl] = useState('');
@@ -130,10 +133,10 @@ function EditDrawer({ open, onClose, editing, onSaved }: EditProps) {
         const res = await FiltersApi.create({ name, nl_text: dsl, apply_to_post: applyPost, apply_to_backend: applyBackend });
         if (!res.success) throw new Error(res.error || 'failed');
       }
-      toast.push({ variant: 'ok', message: '保存しました' });
+      toast.push({ variant: 'ok', message: t.common.saved });
       onClose(); onSaved();
     } catch (e) {
-      toast.push({ variant: 'alert', message: `保存失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.saveFailed((e as Error).message) });
     }
   };
 
@@ -174,6 +177,7 @@ function EditDrawer({ open, onClose, editing, onSaved }: EditProps) {
 }
 
 function DryRunModal({ open, onClose, rule }: { open: boolean; onClose: () => void; rule: FilterRow | null }) {
+  const { t } = useI18n();
   const [eventJson, setEventJson] = useState('');
   const [result, setResult] = useState<DryRunResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -220,9 +224,9 @@ function DryRunModal({ open, onClose, rule }: { open: boolean; onClose: () => vo
         </>
       }
     >
-      <p className="muted">サンプル Event JSON を編集して、現在の DSL がマッチするかを確認できます。</p>
+      <p className="muted">{t.dsl.dryRunNote}</p>
       <textarea className="crt-input" rows={10} value={eventJson} onChange={(e) => setEventJson(e.target.value)} />
-      {err    && <p className="muted" style={{ color: 'var(--crt-danger)' }}>{err}</p>}
+      {err    && <p className="muted" style={{ color: 'var(--crt-danger-text)' }}>{err}</p>}
       {result && (
         <div style={{ marginTop: 8 }}>
           <strong>{result.matched ? <Tag variant="alert">MATCHED (would reject)</Tag> : <Tag variant="info">PASS</Tag>}</strong>

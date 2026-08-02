@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { StatsTimeseriesBucket } from '../api/types';
+import { useI18n } from '../i18n';
 
 interface Props {
   data: StatsTimeseriesBucket[];
@@ -26,13 +27,14 @@ const SERIES_LABEL: Record<string, string> = {
  * docs/ui_redesign_ja.md §5.1 / §5.2 のチャート要件に対応。
  */
 export function Sparkline({ data, height = 160, series = ['posted', 'delivered', 'rejections'] }: Props) {
+  const { t } = useI18n();
   const { paths, max, ticks, width } = useMemo(() => buildChart(data, series), [data, series]);
 
   if (data.length === 0) {
     return (
       <div className="crt-empty" style={{ minHeight: height }}>
         <div className="crt-empty__title">NO DATA</div>
-        <div>選択期間にイベントが記録されていません</div>
+        <div>{t.sparkline.empty}</div>
       </div>
     );
   }

@@ -3,8 +3,10 @@ import { Card, Button, DataList, type Column, Drawer, Tag, useToast } from '../p
 import { Icon } from '../icons/Icon';
 import { KindBlocklist as KindApi } from '../api';
 import type { ReqKindBlacklistRow } from '../api';
+import { useI18n } from '../i18n';
 
 export function KindBlocklistPage() {
+  const { t } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState<ReqKindBlacklistRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -13,9 +15,9 @@ export function KindBlocklistPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm('削除しますか？')) return;
-    try { await KindApi.remove(id); toast.push({ variant: 'ok', message: '削除しました' }); reload(); }
-    catch (e) { toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` }); }
+    if (!confirm(t.common.confirmDelete)) return;
+    try { await KindApi.remove(id); toast.push({ variant: 'ok', message: t.common.deleted }); reload(); }
+    catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };
 
   const toggleEnabled = async (r: ReqKindBlacklistRow) => {
@@ -26,7 +28,7 @@ export function KindBlocklistPage() {
       });
       reload();
     } catch (e) {
-      toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
     }
   };
 
@@ -57,15 +59,15 @@ export function KindBlocklistPage() {
         actions={<Button variant="primary" onClick={() => setDrawerOpen(true)}><Icon name="plus" /> ADD</Button>}
       >
         <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id)}
-          emptyTitle="NO RULES" emptyHint="特定 kind を REQ レベルで弾けます。kind 番号を指定して追加してください。" />
+          emptyTitle="NO RULES" emptyHint={t.kind.emptyHint} />
       </Card>
 
       <AddDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onSubmit={async (body) => {
-          try { await KindApi.create(body); toast.push({ variant: 'ok', message: '追加しました' }); setDrawerOpen(false); reload(); }
-          catch (e) { toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` }); }
+          try { await KindApi.create(body); toast.push({ variant: 'ok', message: t.common.added }); setDrawerOpen(false); reload(); }
+          catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
         }}
       />
     </div>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Icon } from '../icons/Icon';
 import { StatusDot } from '../primitives/StatusDot';
+import { useI18n } from '../i18n';
 
 interface Props {
   title?: ReactNode;
@@ -16,6 +17,7 @@ interface Props {
  *  - スカル・グリッチ・ステンシルは無し
  *  - "{>>} Profiler" 1 行のみ。HUD タグは犯罪分析報告風に控えめに */
 export function Topbar({ title = 'Profiler', liveLabel = 'Online', right, onMenu }: Props) {
+  const { lang, setLang } = useI18n();
   return (
     <header className="crt-shell__top crt-topbar">
       <div className="crt-topbar__brand">
@@ -37,7 +39,17 @@ export function Topbar({ title = 'Profiler', liveLabel = 'Online', right, onMenu
         <span className="crt-hud-tag">uplink ok</span>
       </div>
 
-      <div className="crt-topbar__right">{right}</div>
+      <div className="crt-topbar__right">
+        <button
+          className="crt-btn crt-btn--ghost"
+          onClick={() => setLang(lang === 'ja' ? 'en' : 'ja')}
+          aria-label="switch language"
+          title={lang === 'ja' ? 'Switch to English' : '日本語に切り替え'}
+        >
+          {lang === 'ja' ? 'EN' : 'JA'}
+        </button>
+        {right}
+      </div>
     </header>
   );
 }

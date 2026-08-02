@@ -11,6 +11,7 @@ import {
   resetQuickActionCounts,
   type QuickActionKind,
 } from '../utils/uiPrefs';
+import { useI18n } from '../i18n';
 
 const QUICK_ACTION_LABEL: Record<QuickActionKind, string> = {
   quarantine_npub:    'Quarantine npub',
@@ -20,6 +21,7 @@ const QUICK_ACTION_LABEL: Record<QuickActionKind, string> = {
 };
 
 export function SystemPage() {
+  const { t } = useI18n();
   const [info, setInfo] = useState<SystemInfoResponse | null>(null);
   const [crtOn, setCrtOn]   = useState(() => getUiPrefs().crtOverlay);
   const [animOn, setAnimOn] = useState(() => getUiPrefs().animations);
@@ -60,10 +62,7 @@ export function SystemPage() {
             <dt>LOCKED IPS</dt>     <dd><Tag variant={info.auth_throttle.locked_ips_count > 0 ? 'warn' : 'dim'}>{info.auth_throttle.locked_ips_count}</Tag></dd>
           </dl>
         ) : <p className="muted">loading…</p>}
-        <p className="muted">
-          設定変更は <code>ADMIN_LOCKOUT_THRESHOLD</code> / <code>ADMIN_LOCKOUT_WINDOW_SECS</code> /
-          {' '}<code>ADMIN_LOCKOUT_DURATION_SECS</code> 環境変数で行い、再起動してください。
-        </p>
+        <p className="muted">{t.system.lockoutNote}</p>
       </Card>
 
       <Card title={<>RETENTION</>}>
@@ -72,7 +71,7 @@ export function SystemPage() {
             <dt>LOG RETENTION</dt>  <dd>{info.retention.log_retention_days != null ? `${info.retention.log_retention_days}d` : 'default'}</dd>
           </dl>
         ) : null}
-        <p className="muted">変更は <code>LOG_RETENTION_DAYS</code> 環境変数で。</p>
+        <p className="muted">{t.system.retentionNote}</p>
       </Card>
 
       <Card title={<>ENVIRONMENT OVERRIDES <span className="crt-hud-tag">{info?.env_overrides.length ?? 0} keys</span></>}>
@@ -85,7 +84,7 @@ export function SystemPage() {
               </li>
             ))}
           </ul>
-        ) : <p className="muted">env からの上書きはありません</p>}
+        ) : <p className="muted">{t.system.noEnvOverrides}</p>}
       </Card>
 
       <Card title={<>UI PREFERENCES <span className="crt-hud-tag">localStorage</span></>}>
@@ -98,8 +97,7 @@ export function SystemPage() {
                   onChange={(v) => { setAnimOn(v); setUiPref('animations', v); }} />
           {reducedMotion && (
             <p className="muted">
-              <Tag variant="warn">OS</Tag> <code>prefers-reduced-motion</code> が有効です。
-              UI 設定にかかわらずアニメーションは自動で停止されます。
+              <Tag variant="warn">OS</Tag> {t.system.reducedMotionNote}
             </p>
           )}
           <Button variant="ghost"
@@ -114,7 +112,7 @@ export function SystemPage() {
 
       <Card title={<>QUICK ACTION USAGE <span className="crt-hud-tag">local · {quickCounts.total} total</span></>}>
         {quickCounts.total === 0 ? (
-          <p className="muted">緊急アクション FAB はまだ使用されていません。</p>
+          <p className="muted">{t.system.fabUnused}</p>
         ) : (
           <ul className="dash-list">
             {(Object.keys(QUICK_ACTION_LABEL) as QuickActionKind[]).map((k) => (
@@ -125,9 +123,7 @@ export function SystemPage() {
             ))}
           </ul>
         )}
-        <p className="muted" style={{ marginTop: 8 }}>
-          利用回数はブラウザの localStorage に保存されます（個人情報は含まれません）。
-        </p>
+        <p className="muted" style={{ marginTop: 8 }}>{t.system.fabStorageNote}</p>
         <Button variant="ghost"
                 onClick={() => { resetQuickActionCounts(); setQuickCounts(getQuickActionCounts()); }}>
           RESET COUNTS

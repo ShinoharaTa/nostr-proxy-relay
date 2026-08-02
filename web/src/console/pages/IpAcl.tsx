@@ -4,6 +4,7 @@ import { Icon } from '../icons/Icon';
 import { IpAcl as IpAclApi } from '../api';
 import type { IpAccessControlRow, IpAclMode } from '../api';
 import { ago } from '../utils/format';
+import { useI18n } from '../i18n';
 
 const MODES: IpAclMode[] = ['hard_ban', 'shadow_ban', 'whitelist', 'normal'];
 
@@ -15,6 +16,7 @@ const MODE_BADGE: Record<IpAclMode, 'hard' | 'shadow' | 'whitelist' | 'neutral'>
 };
 
 export function IpAclPage() {
+  const { t } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState<IpAccessControlRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -25,9 +27,9 @@ export function IpAclPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm('削除しますか？')) return;
-    try { await IpAclApi.remove(id); reload(); toast.push({ variant: 'ok', message: '削除しました' }); }
-    catch (e) { toast.push({ variant: 'alert', message: `削除失敗: ${(e as Error).message}` }); }
+    if (!confirm(t.common.confirmDelete)) return;
+    try { await IpAclApi.remove(id); reload(); toast.push({ variant: 'ok', message: t.common.deleted }); }
+    catch (e) { toast.push({ variant: 'alert', message: t.common.deleteFailed((e as Error).message) }); }
   };
 
   const submit = async (body: { ip_address: string; mode: IpAclMode; memo: string }, id?: number) => {
@@ -38,9 +40,9 @@ export function IpAclPage() {
         reload();
         setDrawerOpen(false);
         setEditing(null);
-        toast.push({ variant: 'ok', message: '反映しました' });
+        toast.push({ variant: 'ok', message: t.common.applied });
       } catch (e) {
-        toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` });
+        toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
       }
     };
     if (body.mode === 'hard_ban') {
@@ -80,7 +82,7 @@ export function IpAclPage() {
         }
       >
         <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id ?? r.ip_address)}
-          emptyTitle="NO ENTRIES" emptyHint="ADD で IP / CIDR を追加してください" />
+          emptyTitle="NO ENTRIES" emptyHint={t.ipacl.emptyHint} />
       </Card>
 
       <EditDrawer
@@ -92,7 +94,7 @@ export function IpAclPage() {
 
       <Modal
         open={!!confirmHardBan}
-        title="HARD BAN を実行しますか？"
+        title={t.ipacl.hardBanTitle}
         onClose={() => setConfirmHardBan(null)}
         footer={
           <>
@@ -104,8 +106,8 @@ export function IpAclPage() {
           </>
         }
       >
-        <p>{confirmHardBan?.ip} を Hard BAN します。<strong>該当 IP の既存 WS 接続は強制切断</strong>され、以後の接続も拒否します。</p>
-        <p className="muted">CIDR の場合、範囲内の全てのセッションが切断されます。実行は記録されます ({ago(new Date().toISOString())} 予定)。</p>
+        {t.ipacl.hardBanBody(confirmHardBan?.ip ?? '')}
+        <p className="muted">{t.ipacl.hardBanNote(ago(new Date().toISOString()))}</p>
       </Modal>
     </div>
   );

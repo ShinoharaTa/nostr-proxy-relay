@@ -5,10 +5,12 @@ import type { StatsPeriod } from '../api';
 import { usePolling } from '../utils/usePolling';
 import { Sparkline } from '../components/Sparkline';
 import { ago, durationBetween, prettyNumber, shortDateTime } from '../utils/format';
+import { useI18n } from '../i18n';
 
 const PERIODS: StatsPeriod[] = ['15m', '1h', '6h', '24h', '7d'];
 
 export function Dashboard() {
+  const { t } = useI18n();
   const [period, setPeriod] = useState<StatsPeriod>('1h');
 
   const stats = usePolling((sig) => Stats.current(sig), 5000);
@@ -67,7 +69,7 @@ export function Dashboard() {
           {activeConnRows.length === 0 ? (
             <div className="crt-empty">
               <div className="crt-empty__title">NO ACTIVE</div>
-              <div>現在接続中のクライアントはありません</div>
+              <div>{t.dashboard.noClients}</div>
             </div>
           ) : (
             <ul className="dash-list">
@@ -98,7 +100,7 @@ export function Dashboard() {
           ) : (
             <div className="crt-empty">
               <div className="crt-empty__title">NO REJECTIONS</div>
-              <div>直近のイベント拒否はありません</div>
+              <div>{t.dashboard.noRecentRejects}</div>
             </div>
           )}
         </Card>
@@ -118,7 +120,7 @@ export function Dashboard() {
           ) : (
             <div className="crt-empty">
               <div className="crt-empty__title">NO DATA</div>
-              <div>まだ拒否ログがありません</div>
+              <div>{t.dashboard.noRejectLogs}</div>
             </div>
           )}
         </Card>
@@ -139,7 +141,7 @@ export function Dashboard() {
           ) : (
             <div className="crt-empty">
               <div className="crt-empty__title">ALL CLEAR</div>
-              <div>backend イベントは記録されていません</div>
+              <div>{t.dashboard.noBackendEvents}</div>
             </div>
           )}
         </Card>

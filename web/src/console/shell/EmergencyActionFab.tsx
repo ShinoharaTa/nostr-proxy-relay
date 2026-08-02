@@ -5,6 +5,7 @@ import { useToast } from '../primitives/Toast';
 import { Icon } from '../icons/Icon';
 import { IpAcl, PostPolicy, Quarantine, Safelist } from '../api';
 import { recordQuickActionUsed, type QuickActionKind } from '../utils/uiPrefs';
+import { useI18n } from '../i18n';
 
 type Action = QuickActionKind | null;
 
@@ -16,6 +17,7 @@ type Action = QuickActionKind | null;
  * - 接続中クライアント IP を強制切断
  */
 export function EmergencyActionFab() {
+  const { t } = useI18n();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<Action>(null);
@@ -79,7 +81,7 @@ export function EmergencyActionFab() {
         ) : action === 'disconnect_ip' ? (
           <IpHardBanForm
             onCancel={() => setAction(null)}
-            heading="Hard BAN は既存接続を強制切断します。同等扱いとして実行します。"
+            heading={t.fab.disconnectHeading}
             onSubmit={(ip, memo) =>
               fire('disconnect_ip',
                 () => IpAcl.create({ ip_address: ip, mode: 'hard_ban', memo: memo || 'fab disconnect' }),
@@ -134,10 +136,11 @@ function IpHardBanForm({ onSubmit, onCancel, heading }: { onSubmit: (ip: string,
 }
 
 function PolicyToggleForm({ onSubmit, onCancel }: { onSubmit: (p: 'allowlist' | 'denylist') => void; onCancel: () => void }) {
+  const { t } = useI18n();
   const [p, setP] = useState<'allowlist' | 'denylist'>('denylist');
   return (
     <div className="form-grid">
-      <p className="muted">POST policy を切り替えます。allowlist は閉じた運用 (allow リストのみ)、denylist は広く公開で deny だけ拒否です。</p>
+      <p className="muted">{t.fab.policyToggleNote}</p>
       <label>
         <span>policy</span>
         <select className="crt-input" value={p} onChange={(e) => setP(e.target.value as 'allowlist' | 'denylist')}>

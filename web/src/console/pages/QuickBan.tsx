@@ -3,6 +3,7 @@ import { Card, Button, DataList, type Column, Drawer, Modal, Tag, useToast } fro
 import { Icon } from '../icons/Icon';
 import { SimpleBan, Translate } from '../api';
 import type { SimpleBanRuleRow } from '../api';
+import { useI18n } from '../i18n';
 
 const RULE_TYPES = [
   { id: 'npub', label: 'NPUB list (deny)' },
@@ -11,6 +12,7 @@ const RULE_TYPES = [
 ];
 
 export function QuickBanPage() {
+  const { t } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState<SimpleBanRuleRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -21,9 +23,9 @@ export function QuickBanPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm('削除しますか？')) return;
-    try { await SimpleBan.remove(id); toast.push({ variant: 'ok', message: '削除しました' }); reload(); }
-    catch (e) { toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` }); }
+    if (!confirm(t.common.confirmDelete)) return;
+    try { await SimpleBan.remove(id); toast.push({ variant: 'ok', message: t.common.deleted }); reload(); }
+    catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };
 
   const cols: Column<SimpleBanRuleRow>[] = [
@@ -66,7 +68,7 @@ export function QuickBanPage() {
         actions={<Button variant="primary" onClick={() => { setEditing(null); setDrawerOpen(true); }}><Icon name="plus" /> ADD</Button>}
       >
         <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id)}
-          emptyTitle="NO RULES" emptyHint="GUI で組める単純ルール (npub / kind / tag) を Quick BAN に登録できます" />
+          emptyTitle="NO RULES" emptyHint={t.quickban.emptyHint} />
       </Card>
 
       <EditDrawer
@@ -88,6 +90,7 @@ interface EditProps {
   onSaved: () => void;
 }
 function EditDrawer({ open, onClose, editing, onSaved }: EditProps) {
+  const { t } = useI18n();
   const toast = useToast();
   const [type, setType] = useState('npub');
   const [npubList, setNpubList] = useState('');
@@ -125,10 +128,10 @@ function EditDrawer({ open, onClose, editing, onSaved }: EditProps) {
     try {
       if (editing) await SimpleBan.update(editing.id, body);
       else         await SimpleBan.create(body);
-      toast.push({ variant: 'ok', message: '保存しました' });
+      toast.push({ variant: 'ok', message: t.common.saved });
       onClose(); onSaved();
     } catch (e) {
-      toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
     }
   };
 
@@ -181,6 +184,7 @@ function EditDrawer({ open, onClose, editing, onSaved }: EditProps) {
 }
 
 function DslPreviewModal({ open, onClose, rule }: { open: boolean; onClose: () => void; rule: SimpleBanRuleRow | null }) {
+  const { t } = useI18n();
   const [dsl, setDsl] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
@@ -200,8 +204,8 @@ function DslPreviewModal({ open, onClose, rule }: { open: boolean; onClose: () =
     <Modal open={open} title="DSL PREVIEW" onClose={onClose}
       footer={<Button variant="ghost" onClick={onClose}>CLOSE</Button>}
     >
-      <p className="muted">この Quick BAN ルールを DSL に変換するとこうなります。</p>
-      {err ? <p style={{ color: 'var(--crt-danger)' }}>{err}</p> : <pre className="json-preview">{dsl || '…'}</pre>}
+      <p className="muted">{t.quickban.dslPreviewNote}</p>
+      {err ? <p style={{ color: 'var(--crt-danger-text)' }}>{err}</p> : <pre className="json-preview">{dsl || '…'}</pre>}
     </Modal>
   );
 }

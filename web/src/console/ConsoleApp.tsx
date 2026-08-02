@@ -3,6 +3,7 @@ import './design/base.css';
 import './primitives/primitives.css';
 import './shell/shell.css';
 import { AppShell } from './shell/AppShell';
+import { ConsoleI18nProvider } from './i18n';
 import { ToastHost } from './primitives/Toast';
 import { Showroom } from './pages/Showroom';
 import { Dashboard } from './pages/Dashboard';
@@ -28,6 +29,7 @@ import { SystemPage } from './pages/SystemPage';
  */
 export function ConsoleApp() {
   return (
+    <ConsoleI18nProvider>
     <ToastHost>
       <AppShell>
         <Routes>
@@ -73,5 +75,6 @@ export function ConsoleApp() {
         </Routes>
       </AppShell>
     </ToastHost>
+    </ConsoleI18nProvider>
   );
 }

@@ -4,6 +4,7 @@ import { Icon } from '../icons/Icon';
 import { Quarantine as QApi } from '../api';
 import type { QuarantineRow, QuarantineScope } from '../api';
 import { ago, shortDateTime } from '../utils/format';
+import { useI18n } from '../i18n';
 
 const PRESET_DURATIONS: { label: string; secs: number | null }[] = [
   { label: '15 min', secs: 15 * 60 },
@@ -21,6 +22,7 @@ const SCOPES: { id: QuarantineScope; label: string }[] = [
 ];
 
 export function QuarantinePage() {
+  const { t } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState<QuarantineRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -29,9 +31,9 @@ export function QuarantinePage() {
   useEffect(() => { reload(); }, []);
 
   const release = async (id: number, npub: string) => {
-    if (!confirm(`${npub} の隔離を解除しますか？`)) return;
-    try { await QApi.remove(id); toast.push({ variant: 'ok', message: '解除しました' }); reload(); }
-    catch (e) { toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` }); }
+    if (!confirm(t.quarantine.confirmRelease(npub))) return;
+    try { await QApi.remove(id); toast.push({ variant: 'ok', message: t.quarantine.released }); reload(); }
+    catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };
 
   const cols: Column<QuarantineRow>[] = [
@@ -60,7 +62,7 @@ export function QuarantinePage() {
         actions={<Button variant="primary" onClick={() => setDrawerOpen(true)}><Icon name="plus" /> QUARANTINE</Button>}
       >
         <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id)}
-          emptyTitle="NO QUARANTINE" emptyHint="QUARANTINE で時限ミュートを追加できます" />
+          emptyTitle="NO QUARANTINE" emptyHint={t.quarantine.emptyHint} />
       </Card>
 
       <AddDrawer
@@ -69,11 +71,11 @@ export function QuarantinePage() {
         onSubmit={async (body) => {
           try {
             await QApi.create(body);
-            toast.push({ variant: 'ok', message: '隔離しました' });
+            toast.push({ variant: 'ok', message: t.quarantine.created });
             setDrawerOpen(false);
             reload();
           } catch (e) {
-            toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` });
+            toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
           }
         }}
       />

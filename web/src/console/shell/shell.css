@@ -107,7 +107,7 @@
 }
 .crt-side__brand {
   font-family: var(--crt-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--crt-fg-dim);
   margin-bottom: var(--crt-gap-lg);
   padding-left: 4px;
@@ -132,8 +132,8 @@
   color: var(--crt-fg-dim);
   font-family: var(--crt-font-display);
   font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .crt-side__items {
@@ -194,7 +194,7 @@
   color: var(--crt-fg-dim);
   font-family: var(--crt-font-display);
   font-weight: 500;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   cursor: pointer;
   padding: 4px;

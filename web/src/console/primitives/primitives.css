@@ -22,7 +22,7 @@
   align-items: center;
   gap: 4px;
   font-family: var(--crt-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--crt-fg-dim);
   padding: 0 4px;
@@ -39,8 +39,8 @@
 .crt-hud-tag--info::before   { color: var(--crt-info); }
 .crt-hud-tag--warn   { color: var(--crt-warn); }
 .crt-hud-tag--warn::before   { color: var(--crt-warn); }
-.crt-hud-tag--alert  { color: var(--crt-danger); }
-.crt-hud-tag--alert::before  { color: var(--crt-danger); }
+.crt-hud-tag--alert  { color: var(--crt-danger-text); }
+.crt-hud-tag--alert::before  { color: var(--crt-danger-text); }
 /* 後方互換: --pink を使うコードは accent と同義に倒す */
 .crt-hud-tag--pink   { color: var(--crt-accent); }
 .crt-hud-tag--pink::before   { color: var(--crt-accent); }
@@ -92,7 +92,7 @@
 
 .crt-btn--danger {
   background: transparent;
-  color: var(--crt-danger);
+  color: var(--crt-danger-text);
   border-color: var(--crt-danger);
 }
 .crt-btn--danger:hover {
@@ -110,7 +110,15 @@
 /* icon-only ボタンに ">>" は付けない */
 .crt-btn--icon::before { content: none !important; }
 
-.crt-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+/* opacity ではなく色で表現する (暗背景 × opacity は文字が消えるため) */
+.crt-btn[disabled] {
+  color: var(--crt-fg-dim);
+  border-color: var(--crt-border);
+  background: transparent;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.crt-btn--primary[disabled] { color: var(--crt-bg); background: var(--crt-fg-dim); }
 
 /* ===== Card (犯罪分析報告風 / 装飾最小) ===== */
 .crt-card {
@@ -125,7 +133,7 @@
   font-family: var(--crt-font-display);
   font-weight: 700;
   font-size: 12px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   color: var(--crt-fg-dim);
   text-transform: uppercase;
   display: flex;
@@ -169,8 +177,8 @@
 .crt-kpi__label {
   font-family: var(--crt-font-display);
   font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   color: var(--crt-fg-dim);
   text-transform: uppercase;
 }
@@ -226,13 +234,13 @@
   border: 1px solid currentColor;
   font-family: var(--crt-font-display);
   font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .crt-tag--info   { color: var(--crt-info); }
 .crt-tag--warn   { color: var(--crt-warn); }
-.crt-tag--alert  { color: var(--crt-danger); }
+.crt-tag--alert  { color: var(--crt-danger-text); }
 .crt-tag--accent { color: var(--crt-accent); }
 .crt-tag--dim    { color: var(--crt-fg-dim); }
 
@@ -243,11 +251,11 @@
   border: 1px solid currentColor;
   font-family: var(--crt-font-display);
   font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.crt-mode--hard      { color: var(--crt-danger); }
+.crt-mode--hard      { color: var(--crt-danger-text); }
 .crt-mode--shadow    { color: var(--crt-fg-dim); }
 .crt-mode--whitelist { color: var(--crt-info); }
 .crt-mode--temp      { color: var(--crt-warn); }
@@ -290,13 +298,13 @@
 .crt-list th {
   font-family: var(--crt-font-display);
   font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   color: var(--crt-fg-dim);
   text-transform: uppercase;
   border-bottom: 1px solid var(--crt-border-strong);
 }
-.crt-list tr:hover { background: rgba(196, 209, 64, 0.04); }
+.crt-list tr:hover { background: rgba(196, 209, 64, 0.08); }
 
 .crt-list--cards { display: none; }
 @media (max-width: 1023.98px) {
@@ -322,9 +330,9 @@
     color: var(--crt-fg-dim);
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.08em;
     font-family: var(--crt-font-display);
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 
@@ -356,7 +364,7 @@
 .crt-toast__title {
   font-family: var(--crt-font-display);
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   font-size: 12px;
   color: var(--crt-fg-dim);

@@ -15,20 +15,23 @@
   --crt-bg-soft:   #15110b;
   --crt-bg-card:   rgba(28, 22, 14, 0.94);
 
-  /* ─ Foreground (アイボリー: 純白は使わない) ─ */
+  /* ─ Foreground (アイボリー: 純白は使わない) ─
+     fg-dim はラベル用 (bg 上 ≥6:1)。fg-muted はデータ本文の弱調用 (≥8:1)。 */
   --crt-fg:        #e6e0d4;
-  --crt-fg-dim:    #807563;
+  --crt-fg-muted:  #b3a78f;
+  --crt-fg-dim:    #9a8d77;
 
   /* ─ Semantic colors (WD1 ctOS / Profiler 抽出) ─ */
   --crt-accent:    #c4d140;            /* WD1 ctOS 鈍い黄緑 */
   --crt-accent-2:  #d6e26b;
   --crt-info:      #6dc4d8;            /* WD1 ダークシアン由来 connected */
   --crt-warn:      #d4863e;            /* WD1 オレンジ茶 warning */
-  --crt-danger:    #d03d3e;            /* WD1 アラート赤 (Heat Level) */
+  --crt-danger:    #d03d3e;            /* WD1 アラート赤 (Heat Level) — 塗り/枠用 */
+  --crt-danger-text: #e05a5b;          /* 小サイズ文字用の明るい danger (AA 確保) */
 
   /* ─ Borders (暗茶) ─ */
-  --crt-border:    #2e2516;
-  --crt-border-strong: #4a3a22;
+  --crt-border:    #3c3020;
+  --crt-border-strong: #5c4a2e;
 
   /* ─ Typography (Helvetica + IBM Plex Mono + VT323) ─ */
   --crt-font-display: 'Arimo', 'Helvetica Neue', Helvetica, Arial, sans-serif;

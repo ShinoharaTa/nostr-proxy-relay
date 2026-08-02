@@ -5,10 +5,12 @@ import { Relays } from '../api';
 import type { RelayConfigRow, RelayStatus } from '../api';
 import { ago } from '../utils/format';
 import { usePolling } from '../utils/usePolling';
+import { useI18n } from '../i18n';
 
 type DraftRow = RelayConfigRow & { dirty?: boolean };
 
 export function BackendRelays() {
+  const { t } = useI18n();
   const toast = useToast();
   const [rows, setRows] = useState<DraftRow[] | null>(null);
   const status = usePolling((s) => Relays.status(s), 5000);
@@ -30,7 +32,7 @@ export function BackendRelays() {
   };
 
   const onRemove = (url: string) => {
-    if (!confirm(`backend relay "${url}" を削除しますか？`)) return;
+    if (!confirm(t.backend.confirmDelete(url))) return;
     setRows((prev) => prev?.filter((r) => r.url !== url).map((r) => ({ ...r, dirty: true })) ?? prev);
   };
 
@@ -38,10 +40,10 @@ export function BackendRelays() {
     if (!rows) return;
     try {
       await Relays.put(rows.map(({ dirty: _d, ...r }) => r));
-      toast.push({ variant: 'ok', message: 'backend relays を更新しました' });
+      toast.push({ variant: 'ok', message: t.backend.updated });
       Relays.list().then(setRows);
     } catch (e) {
-      toast.push({ variant: 'alert', message: `保存失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.saveFailed((e as Error).message) });
     }
   };
 
@@ -128,7 +130,7 @@ export function BackendRelays() {
           columns={cols}
           rowKey={(r) => r.url}
           emptyTitle="NO BACKEND RELAYS"
-          emptyHint="ADD ボタンで wss URL を追加してください"
+          emptyHint={t.backend.emptyHint}
         />
       </Card>
 
@@ -139,20 +141,20 @@ export function BackendRelays() {
           setRows((prev) => {
             const next = prev ? [...prev] : [];
             if (next.some((r) => r.url === row.url)) {
-              toast.push({ variant: 'warn', message: 'すでに登録済みの URL です' });
+              toast.push({ variant: 'warn', message: t.backend.duplicateUrl });
               return prev;
             }
             next.push({ ...row, dirty: true });
             return next;
           });
           setDrawerOpen(false);
-          toast.push({ variant: 'ok', message: '追加候補に積みました。SAVE で確定。' });
+          toast.push({ variant: 'ok', message: t.backend.queued });
         }}
       />
 
       <Modal
         open={confirmOpen}
-        title="変更を保存しますか？"
+        title={t.backend.saveTitle}
         onClose={() => setConfirmOpen(false)}
         footer={
           <>
@@ -161,7 +163,7 @@ export function BackendRelays() {
           </>
         }
       >
-        <p>backend relay 構成を更新します。接続中のセッションは新構成に切り替わるまで一瞬切断される可能性があります。</p>
+        <p>{t.backend.saveBody}</p>
       </Modal>
     </div>
   );
@@ -173,6 +175,7 @@ interface AddProps {
   onAdd: (row: RelayConfigRow) => void;
 }
 function AddRelayDrawer({ open, onClose, onAdd }: AddProps) {
+  const { t } = useI18n();
   const toast = useToast();
   const [url, setUrl] = useState('');
   const [role, setRole] = useState('primary');
@@ -191,7 +194,7 @@ function AddRelayDrawer({ open, onClose, onAdd }: AddProps) {
       const info = await Relays.fetchNip11(url);
       setNip11(info);
     } catch (e) {
-      toast.push({ variant: 'alert', message: `NIP-11 取得失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.backend.nip11ProbeFailed((e as Error).message) });
       setNip11(null);
     } finally {
       setBusy(false);

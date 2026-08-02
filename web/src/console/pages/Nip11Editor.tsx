@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, Button, useToast } from '../primitives';
 import { Nip11 } from '../api';
 import type { RelayInfoRow } from '../api';
+import { useI18n } from '../i18n';
 
 const EMPTY: RelayInfoRow = {
   name: '',
@@ -24,6 +25,7 @@ const EMPTY: RelayInfoRow = {
 };
 
 export function Nip11Editor() {
+  const { t } = useI18n();
   const toast = useToast();
   const [row, setRow] = useState<RelayInfoRow>(EMPTY);
   const [orig, setOrig] = useState<RelayInfoRow>(EMPTY);
@@ -42,9 +44,9 @@ export function Nip11Editor() {
     try {
       await Nip11.put(row);
       setOrig(row);
-      toast.push({ variant: 'ok', message: 'NIP-11 を保存しました' });
+      toast.push({ variant: 'ok', message: t.nip11.saved });
     } catch (e) {
-      toast.push({ variant: 'alert', message: `保存失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.saveFailed((e as Error).message) });
     } finally {
       setBusy(false);
     }

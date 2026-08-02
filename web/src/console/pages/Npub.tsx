@@ -3,6 +3,7 @@ import { Card, Button, Pill, DataList, type Column, Drawer, Tag, useToast } from
 import { Icon } from '../icons/Icon';
 import { Safelist } from '../api';
 import type { SafelistRow } from '../api';
+import { useI18n } from '../i18n';
 
 type SubTab = 'allow' | 'deny' | 'ban';
 
@@ -21,6 +22,7 @@ const TABS = [
  * docs/ui_redesign_ja.md §5.8
  */
 export function NpubPage() {
+  const { t } = useI18n();
   const toast = useToast();
   const [tab, setTab] = useState<SubTab>('allow');
   const [rows, setRows] = useState<SafelistRow[] | null>(null);
@@ -37,13 +39,13 @@ export function NpubPage() {
   }, [rows, tab]);
 
   const remove = async (npub: string) => {
-    if (!confirm(`${npub} を削除しますか？`)) return;
+    if (!confirm(t.npub.confirmDelete(npub))) return;
     try {
       await Safelist.remove(npub);
-      toast.push({ variant: 'ok', message: '削除しました' });
+      toast.push({ variant: 'ok', message: t.common.deleted });
       reload();
     } catch (e) {
-      toast.push({ variant: 'alert', message: `削除失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.deleteFailed((e as Error).message) });
     }
   };
 
@@ -51,10 +53,10 @@ export function NpubPage() {
     try {
       if (r.banned) await Safelist.unban(r.npub);
       else          await Safelist.ban(r.npub);
-      toast.push({ variant: 'ok', message: r.banned ? 'unban しました' : 'BAN しました' });
+      toast.push({ variant: 'ok', message: r.banned ? t.npub.unbanned : t.npub.banned });
       reload();
     } catch (e) {
-      toast.push({ variant: 'alert', message: `操作失敗: ${(e as Error).message}` });
+      toast.push({ variant: 'alert', message: t.common.opFailed((e as Error).message) });
     }
   };
 
@@ -102,7 +104,7 @@ export function NpubPage() {
           columns={cols}
           rowKey={(r) => r.npub}
           emptyTitle="EMPTY"
-          emptyHint="ADD で公開鍵を追加してください"
+          emptyHint={t.npub.emptyHint}
         />
       </Card>
 
@@ -113,11 +115,11 @@ export function NpubPage() {
         onAdd={async (row) => {
           try {
             await Safelist.upsert(row);
-            toast.push({ variant: 'ok', message: '追加しました' });
+            toast.push({ variant: 'ok', message: t.common.added });
             setDrawerOpen(false);
             reload();
           } catch (e) {
-            toast.push({ variant: 'alert', message: `失敗: ${(e as Error).message}` });
+            toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
           }
         }}
       />
