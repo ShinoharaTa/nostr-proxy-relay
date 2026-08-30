@@ -16,16 +16,18 @@ pub enum PostDecision {
     Deny(&'static str),
 }
 
+/// POST 可否と safelist.flags を返す（行が無ければ flags = 0）。
+/// flags は自動ガードの除外判定（1/2/8）と broadcast ルーティング（8）に使う。
 pub async fn evaluate_post(
     pool: &SqlitePool,
     pubkey_hex: &str,
     policy: &PostPolicy,
-) -> anyhow::Result<PostDecision> {
+) -> anyhow::Result<(PostDecision, i64)> {
     let npub = match pubkey_hex_to_npub(pubkey_hex) {
         Ok(n) => n,
         Err(e) => {
             tracing::warn!(pubkey_hex = %pubkey_hex, error = %e, "evaluate_post: invalid pubkey");
-            return Ok(PostDecision::Deny("invalid_pubkey"));
+            return Ok((PostDecision::Deny("invalid_pubkey"), 0));
         }
     };
 
@@ -36,10 +38,12 @@ pub async fn evaluate_post(
     .fetch_optional(pool)
     .await?;
 
-    match (policy, row) {
-        (_, Some((_flags, 1))) => Ok(PostDecision::Deny("banned_npub")),
-        (PostPolicy::Allowlist, Some((flags, _))) if (flags & 1) == 1 => Ok(PostDecision::Allow),
-        (PostPolicy::Allowlist, _) => Ok(PostDecision::Deny("not_in_allowlist")),
-        (PostPolicy::Denylist, _) => Ok(PostDecision::Allow),
-    }
+    let flags = row.map(|(f, _)| f).unwrap_or(0);
+    let decision = match (policy, row) {
+        (_, Some((_flags, 1))) => PostDecision::Deny("banned_npub"),
+        (PostPolicy::Allowlist, Some((flags, _))) if (flags & 1) == 1 => PostDecision::Allow,
+        (PostPolicy::Allowlist, _) => PostDecision::Deny("not_in_allowlist"),
+        (PostPolicy::Denylist, _) => PostDecision::Allow,
+    };
+    Ok((decision, flags))
 }

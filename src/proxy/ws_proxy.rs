@@ -10,7 +10,8 @@ use crate::access::{
     evaluate_post, evaluate_quarantine, pubkey_hex_to_npub, IpAclCache, IpDecision, PostDecision,
     QuarantineDecision,
 };
-use crate::config::SettingsCache;
+use crate::config::{SettingsCache, WriteRouting};
+use crate::guard::{AutoGuard, GuardVerdict};
 use crate::event_counter::{Action as CounterAction, EventCounter};
 use crate::event_stream::{LiveEvent, LiveEventBus};
 use crate::filter::engine::FilterEngine;
@@ -63,6 +64,7 @@ pub struct ProxyContext {
     pub session_registry: Arc<SessionRegistry>,
     pub event_counter: Arc<EventCounter>,
     pub event_bus: Arc<LiveEventBus>,
+    pub auto_guard: Arc<AutoGuard>,
 }
 
 /// backend worker を世代をまたいで一意に識別する ID の採番元。
@@ -81,11 +83,11 @@ enum BackendInbound {
 
 fn spawn_backend_worker(
     url: String,
+    worker_id: u64,
     mut command_rx: tokio::sync::mpsc::UnboundedReceiver<TungMessage>,
     inbound_tx: tokio::sync::mpsc::UnboundedSender<BackendInbound>,
     req_cache: Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
 ) {
-    let worker_id = NEXT_WORKER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     tokio::spawn(async move {
         let mut backoff_ms = BACKEND_RECONNECT_MIN_MS;
         loop {
@@ -193,46 +195,134 @@ fn spawn_backend_worker(
     });
 }
 
-fn send_to_backends(
-    backends: &[tokio::sync::mpsc::UnboundedSender<TungMessage>],
-    message: TungMessage,
-) {
-    for tx in backends {
-        let _ = tx.send(message.clone());
+/// バックエンドリレーの接続属性（spec §5.15 のルーティングに使用）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BackendRelayInfo {
+    url: String,
+    /// role = 'primary'（primary_default ルーティングの既定送信先）
+    primary: bool,
+    read_enabled: bool,
+    write_enabled: bool,
+}
+
+/// 起動済み backend worker への送信ハンドル + 接続属性。
+struct BackendTarget {
+    worker_id: u64,
+    tx: tokio::sync::mpsc::UnboundedSender<TungMessage>,
+    info: BackendRelayInfo,
+}
+
+fn send_to_backends(backends: &[BackendTarget], message: TungMessage) {
+    for t in backends {
+        let _ = t.tx.send(message.clone());
     }
 }
 
-/// 有効なバックエンドリレー URL を DB から取得する（接続中の再読込用）。
-async fn load_backend_urls(pool: &SqlitePool) -> Vec<String> {
-    sqlx::query_as::<_, (String,)>(
-        "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC",
+/// REQ / CLOSE の送信先（read_enabled のみ）。1 本も無ければ全リレーへ fail-open。
+fn send_to_read_backends(backends: &[BackendTarget], message: TungMessage) {
+    if backends.iter().any(|t| t.info.read_enabled) {
+        for t in backends.iter().filter(|t| t.info.read_enabled) {
+            let _ = t.tx.send(message.clone());
+        }
+    } else {
+        tracing::warn!("no read-enabled backend relay; sending REQ/CLOSE to all (fail-open)");
+        send_to_backends(backends, message);
+    }
+}
+
+/// EVENT（POST）の送信先を書き込みルーティング（spec §5.15）で決める。
+/// - `All` または broadcast 許可 npub: 全 write_enabled リレーへ
+/// - `PrimaryDefault`: role = 'primary' の write_enabled リレーのみへ
+/// - 該当が 1 本も無ければ段階的に fail-open（primary → write_enabled 全体 → 全リレー）
+fn send_to_write_backends(
+    backends: &[BackendTarget],
+    routing: WriteRouting,
+    broadcast: bool,
+    message: TungMessage,
+) {
+    let writable: Vec<&BackendTarget> =
+        backends.iter().filter(|t| t.info.write_enabled).collect();
+    if writable.is_empty() {
+        tracing::warn!("no write-enabled backend relay; sending EVENT to all (fail-open)");
+        send_to_backends(backends, message);
+        return;
+    }
+    let use_primary_only = routing == WriteRouting::PrimaryDefault && !broadcast;
+    if use_primary_only {
+        let primaries: Vec<&&BackendTarget> =
+            writable.iter().filter(|t| t.info.primary).collect();
+        if primaries.is_empty() {
+            tracing::warn!(
+                "write_routing=primary_default but no primary write-enabled relay;                  falling back to all write-enabled relays (fail-open)"
+            );
+        } else {
+            for t in primaries {
+                let _ = t.tx.send(message.clone());
+            }
+            return;
+        }
+    }
+    for t in writable {
+        let _ = t.tx.send(message.clone());
+    }
+}
+
+/// 有効なバックエンドリレーを接続属性付きで DB から取得する（接続中の再読込用）。
+async fn load_backend_relays(pool: &SqlitePool) -> Vec<BackendRelayInfo> {
+    sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT url, role, read_enabled, write_enabled FROM relay_config WHERE enabled = 1 ORDER BY id ASC",
     )
     .fetch_all(pool)
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|(url,)| url)
+    .map(|(url, role, read_enabled, write_enabled)| BackendRelayInfo {
+        url,
+        primary: role == "primary",
+        read_enabled: read_enabled != 0,
+        write_enabled: write_enabled != 0,
+    })
     .collect()
 }
 
-/// 与えられた URL 群に対して backend worker を起動し、送信用 channel を返す。
+/// 与えられたリレー群に対して backend worker を起動し、送信ハンドルを返す。
 fn spawn_backends(
-    urls: &[String],
+    relays: &[BackendRelayInfo],
     backend_inbound_tx: &tokio::sync::mpsc::UnboundedSender<BackendInbound>,
     req_cache: &Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
-) -> Vec<tokio::sync::mpsc::UnboundedSender<TungMessage>> {
-    let mut txs = Vec::with_capacity(urls.len());
-    for url in urls {
+) -> Vec<BackendTarget> {
+    let mut targets = Vec::with_capacity(relays.len());
+    for info in relays {
+        let worker_id = NEXT_WORKER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        txs.push(tx);
+        targets.push(BackendTarget {
+            worker_id,
+            tx,
+            info: info.clone(),
+        });
         spawn_backend_worker(
-            url.clone(),
+            info.url.clone(),
+            worker_id,
             rx,
             backend_inbound_tx.clone(),
             Arc::clone(req_cache),
         );
     }
-    txs
+    targets
+}
+
+/// read_enabled な worker の ID 集合（EOSE/CLOSED 集約は read 対象だけを待つ）。
+fn read_worker_ids(targets: &[BackendTarget]) -> HashSet<u64> {
+    if targets.iter().any(|t| t.info.read_enabled) {
+        targets
+            .iter()
+            .filter(|t| t.info.read_enabled)
+            .map(|t| t.worker_id)
+            .collect()
+    } else {
+        // read fail-open 時（send_to_read_backends 参照）は全 worker が応答対象
+        targets.iter().map(|t| t.worker_id).collect()
+    }
 }
 
 fn remember_limited(seen: &mut HashSet<String>, order: &mut VecDeque<String>, id: String) -> bool {
@@ -249,10 +339,18 @@ fn remember_limited(seen: &mut HashSet<String>, order: &mut VecDeque<String>, id
     true
 }
 
-/// 現在接続中のすべてのバックエンドから応答（EOSE/CLOSED）が揃ったか。
-/// 切断中のバックエンドは待たない。connected が空なら true（デッドラインが保険になる）。
-fn all_connected_responded(connected: &HashSet<u64>, seen: &HashSet<u64>) -> bool {
-    connected.iter().all(|id| seen.contains(id))
+/// 現在接続中の read 対象バックエンドから応答（EOSE/CLOSED）が揃ったか。
+/// 切断中のバックエンドは待たず、REQ を送っていない write 専用リレーも待たない。
+/// 対象が空なら true（デッドラインが保険になる）。
+fn all_connected_responded(
+    connected: &HashSet<u64>,
+    read_ids: &HashSet<u64>,
+    seen: &HashSet<u64>,
+) -> bool {
+    connected
+        .iter()
+        .filter(|id| read_ids.contains(id))
+        .all(|id| seen.contains(id))
 }
 
 /// EOSE をクライアントへ送り、autoclose 対象の購読なら上流へ CLOSE を送る。
@@ -262,7 +360,7 @@ async fn finish_eose(
     is_shadow: bool,
     client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
     req_cache: &Arc<tokio::sync::RwLock<HashMap<String, ReqCacheEntry>>>,
-    backend_txs: &[tokio::sync::mpsc::UnboundedSender<TungMessage>],
+    backend_txs: &[BackendTarget],
 ) {
     if !is_shadow {
         let text =
@@ -278,7 +376,7 @@ async fn finish_eose(
     if should_close {
         req_cache.write().await.remove(sub_id);
         let close_msg = serde_json::json!(["CLOSE", sub_id]).to_string();
-        send_to_backends(backend_txs, TungMessage::Text(close_msg));
+        send_to_read_backends(backend_txs, TungMessage::Text(close_msg));
     }
 }
 
@@ -320,13 +418,17 @@ fn text_ok_event_id(text: &str) -> Option<String> {
 
 pub async fn proxy_ws_fanout_with_ctx(
     client_ws: WebSocket,
-    backend_urls: Vec<String>,
     ctx: ProxyContext,
     client_ip: String,
 ) -> anyhow::Result<()> {
+    let backend_relays = load_backend_relays(&ctx.pool).await;
+    if backend_relays.is_empty() {
+        tracing::warn!(ip = %client_ip, "No backend relay configured");
+        return Ok(());
+    }
     tracing::info!(
         ip = %client_ip,
-        backend_count = backend_urls.len(),
+        backend_count = backend_relays.len(),
         "WebSocket fanout connection established",
     );
 
@@ -385,8 +487,9 @@ pub async fn proxy_ws_fanout_with_ctx(
         Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let (backend_inbound_tx, mut backend_inbound_rx) =
         tokio::sync::mpsc::unbounded_channel::<BackendInbound>();
-    let mut backend_urls = backend_urls;
-    let mut backend_txs = spawn_backends(&backend_urls, &backend_inbound_tx, &req_cache);
+    let mut backend_relays = backend_relays;
+    let mut backend_txs = spawn_backends(&backend_relays, &backend_inbound_tx, &req_cache);
+    let mut read_ids = read_worker_ids(&backend_txs);
     // 現在接続が確立している backend worker の ID 集合。
     // EOSE/CLOSED の集約は「接続中のバックエンド」だけを待つ（落ちているリレーを待たない）。
     let mut connected_backends: HashSet<u64> = HashSet::new();
@@ -422,18 +525,19 @@ pub async fn proxy_ws_fanout_with_ctx(
 
                 // 有効リレー集合が変わっていれば backend worker を作り直す。
                 // 旧 sender を drop すると、各 worker は command channel close を検知して終了する。
-                let new_urls = load_backend_urls(&ctx.pool).await;
-                if new_urls != backend_urls {
+                let new_relays = load_backend_relays(&ctx.pool).await;
+                if new_relays != backend_relays {
                     tracing::info!(
                         ip = %client_ip,
-                        old = backend_urls.len(),
-                        new = new_urls.len(),
+                        old = backend_relays.len(),
+                        new = new_relays.len(),
                         "relay set changed; rebuilding backend connections",
                     );
                     backend_txs.clear();
-                    backend_urls = new_urls;
+                    backend_relays = new_relays;
                     // 新 worker は接続時に req_cache の REQ を再送するため、購読は引き継がれる。
-                    backend_txs = spawn_backends(&backend_urls, &backend_inbound_tx, &req_cache);
+                    backend_txs = spawn_backends(&backend_relays, &backend_inbound_tx, &req_cache);
+                    read_ids = read_worker_ids(&backend_txs);
                     // worker 世代が変わるので接続集合と EOSE / CLOSED の集約状態をリセット。
                     // 旧 worker からの遅延 Disconnected は新 worker_id と衝突しないため無害。
                     connected_backends.clear();
@@ -451,7 +555,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                         last_client_activity = Instant::now();
                         match parse_client_msg_with_limits(&text, &parse_limits) {
                             Ok(ClientMsg::Event { event }) => {
-                                if !handle_post_event(
+                                let Some(broadcast) = handle_post_event(
                                     &ctx,
                                     &mut filter_engine,
                                     &client_ip,
@@ -460,10 +564,11 @@ pub async fn proxy_ws_fanout_with_ctx(
                                     &event,
                                     &client_out_tx,
                                     connection_log_id,
-                                ).await {
+                                ).await else {
                                     continue;
-                                }
-                                send_to_backends(&backend_txs, TungMessage::Text(text));
+                                };
+                                let routing = ctx.settings.write_routing().await;
+                                send_to_write_backends(&backend_txs, routing, broadcast, TungMessage::Text(text));
                             }
                             Ok(ClientMsg::Req { ref sub_id, .. }) => {
                                 if is_shadow {
@@ -494,7 +599,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                                     sub_id.clone(),
                                     Instant::now() + std::time::Duration::from_millis(EOSE_MAX_WAIT_MS),
                                 );
-                                send_to_backends(&backend_txs, TungMessage::Text(text));
+                                send_to_read_backends(&backend_txs, TungMessage::Text(text));
                             }
                             Ok(ClientMsg::Close { ref sub_id }) => {
                                 req_cache.write().await.remove(sub_id);
@@ -502,7 +607,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                                 eose_seen.remove(sub_id);
                                 eose_deadlines.remove(sub_id);
                                 closed_seen.remove(sub_id);
-                                send_to_backends(&backend_txs, TungMessage::Text(text));
+                                send_to_read_backends(&backend_txs, TungMessage::Text(text));
                             }
                             Err(ParseClientMsgError::UnsupportedCommand(_)) => {
                                 send_to_backends(&backend_txs, TungMessage::Text(text));
@@ -571,7 +676,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                         let ready_eose: Vec<String> = eose_seen
                             .iter()
                             .filter(|(_, seen)| {
-                                !seen.is_empty() && all_connected_responded(&connected_backends, seen)
+                                !seen.is_empty() && all_connected_responded(&connected_backends, &read_ids, seen)
                             })
                             .map(|(sub_id, _)| sub_id.clone())
                             .collect();
@@ -583,7 +688,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                         let ready_closed: Vec<String> = closed_seen
                             .iter()
                             .filter(|(_, (seen, _))| {
-                                !seen.is_empty() && all_connected_responded(&connected_backends, seen)
+                                !seen.is_empty() && all_connected_responded(&connected_backends, &read_ids, seen)
                             })
                             .map(|(sub_id, _)| sub_id.clone())
                             .collect();
@@ -653,7 +758,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                                     let seen = eose_seen.entry(sub_id.clone()).or_default();
                                     seen.insert(worker_id);
                                     // 接続中のバックエンドが全部揃えば即完了（落ちているリレーは待たない）
-                                    all_connected_responded(&connected_backends, seen)
+                                    all_connected_responded(&connected_backends, &read_ids, seen)
                                 };
                                 // 最初の EOSE が届いたら、残りは短い猶予だけ待つ
                                 let tightened = Instant::now()
@@ -684,7 +789,7 @@ pub async fn proxy_ws_fanout_with_ctx(
                                     *latest_text = text;
                                     // 接続中のバックエンド全部が CLOSED を返した場合のみクライアントへ転送。
                                     // 一部だけが CLOSED（auth-required 等）で他が配信継続中なら購読を維持する。
-                                    all_connected_responded(&connected_backends, seen)
+                                    all_connected_responded(&connected_backends, &read_ids, seen)
                                 };
                                 if done {
                                     req_cache.write().await.remove(&sub_id);
@@ -886,7 +991,7 @@ pub async fn proxy_ws_with_ctx(
                             last_client_activity = Instant::now();
                             match parse_client_msg_with_limits(&text, &parse_limits) {
                                 Ok(ClientMsg::Event { event }) => {
-                                    if !handle_post_event(
+                                    if handle_post_event(
                                         &ctx,
                                         &mut filter_engine,
                                         &client_ip,
@@ -895,7 +1000,7 @@ pub async fn proxy_ws_with_ctx(
                                         &event,
                                         &client_out_tx,
                                         connection_log_id,
-                                    ).await {
+                                    ).await.is_none() {
                                         // 拒否（または shadow drop）。バックエンドへは送らない。
                                         continue;
                                     }
@@ -1119,6 +1224,9 @@ async fn cleanup(
 }
 
 /// 戻り値 false = drop（バックエンド転送しない）, true = 通過。
+/// POST された EVENT を評価する。
+/// 通過なら `Some(broadcast)`（broadcast = 全リレー fan-out 許可、spec §5.15）、
+/// 拒否・drop 済みなら `None` を返す。
 async fn handle_post_event(
     ctx: &ProxyContext,
     filter_engine: &mut FilterEngine,
@@ -1128,30 +1236,30 @@ async fn handle_post_event(
     event: &Event,
     client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
     connection_log_id: Option<i64>,
-) -> bool {
+) -> Option<bool> {
     // shadow_ban: OK true で偽装し、転送しない
     if is_shadow {
         let _ = client_out_tx.send(Message::Text(
             serde_json::json!(["OK", event.id, true, ""]).to_string(),
         ));
         ctx.event_counter.record(event.kind, CounterAction::Rejected);
-        return false;
+        return None;
     }
 
     // POST policy
     let policy = ctx.settings.post_policy().await;
-    let post_decision = match evaluate_post(&ctx.pool, &event.pubkey, &policy).await {
-        Ok(d) => d,
+    let (post_decision, safelist_flags) = match evaluate_post(&ctx.pool, &event.pubkey, &policy).await {
+        Ok(v) => v,
         Err(e) => {
             tracing::error!(error = %e, "evaluate_post failed");
-            PostDecision::Deny("evaluate_error")
+            (PostDecision::Deny("evaluate_error"), 0)
         }
     };
 
     if let PostDecision::Deny(reason) = post_decision {
         if !is_whitelisted {
             reject_post(ctx, event, client_ip, reason, client_out_tx, connection_log_id).await;
-            return false;
+            return None;
         }
     }
 
@@ -1177,7 +1285,7 @@ async fn handle_post_event(
                         .execute(&ctx.pool)
                         .await;
                 }
-                return false;
+                return None;
             }
         }
     }
@@ -1192,10 +1300,48 @@ async fn handle_post_event(
                     "simple_ban_post"
                 };
                 reject_post(ctx, event, client_ip, static_reason, client_out_tx, connection_log_id).await;
-                return false;
+                return None;
             }
             Ok(None) => {}
             Err(e) => tracing::warn!(error = %e, "evaluate_post_extra error"),
+        }
+    }
+
+    // 自動ガード（spec §5.14）: 検知は自動、制裁は時限 Quarantine のみ。
+    // IP whitelist と safelist フラグ（post_allowed / filter_bypass / broadcast）持ちは除外。
+    let guard_exempt = is_whitelisted || (safelist_flags & (1 | 2 | 8)) != 0;
+    if !guard_exempt {
+        let guard_cfg = ctx.settings.auto_guard().await;
+        if guard_cfg.enabled {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let verdict = ctx.auto_guard.check(
+                &guard_cfg,
+                now,
+                &event.pubkey,
+                event.kind,
+                &event.content,
+                client_ip,
+            );
+            match verdict {
+                GuardVerdict::Pass => {}
+                GuardVerdict::ContentMuted => {
+                    silent_reject_post(ctx, event, client_ip, "auto_guard:duplicate_content", client_out_tx, connection_log_id).await;
+                    return None;
+                }
+                GuardVerdict::BurstFired => {
+                    issue_auto_quarantine(ctx, &npub, "auto_guard:burst", guard_cfg.quarantine_secs).await;
+                    silent_reject_post(ctx, event, client_ip, "auto_guard:burst", client_out_tx, connection_log_id).await;
+                    return None;
+                }
+                GuardVerdict::DuplicateFired => {
+                    issue_auto_quarantine(ctx, &npub, "auto_guard:duplicate_content", guard_cfg.quarantine_secs).await;
+                    silent_reject_post(ctx, event, client_ip, "auto_guard:duplicate_content", client_out_tx, connection_log_id).await;
+                    return None;
+                }
+            }
         }
     }
 
@@ -1207,7 +1353,7 @@ async fn handle_post_event(
         npub,
         ip: Some(client_ip.to_string()),
     });
-    true
+    Some((safelist_flags & 8) != 0)
 }
 
 async fn reject_post(
@@ -1247,6 +1393,81 @@ async fn reject_post(
     let _ = client_out_tx.send(Message::Text(
         serde_json::json!(["OK", event.id, false, format!("blocked: {}", reason)]).to_string(),
     ));
+}
+
+/// 自動ガード用: 内部では拒否として記録しつつ、クライアントには OK true で偽装する。
+/// スパマーにフィルタの存在を教えないため（Quarantine の silent 挙動と同じ）。
+async fn silent_reject_post(
+    ctx: &ProxyContext,
+    event: &Event,
+    client_ip: &str,
+    reason: &str,
+    client_out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    connection_log_id: Option<i64>,
+) {
+    let npub = pubkey_hex_to_npub(&event.pubkey).unwrap_or_default();
+    let _ = sqlx::query(
+        "INSERT INTO event_rejection_logs (event_id, pubkey_hex, npub, ip_address, kind, reason) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&event.id)
+    .bind(&event.pubkey)
+    .bind(&npub)
+    .bind(client_ip)
+    .bind(event.kind)
+    .bind(reason)
+    .execute(&ctx.pool)
+    .await;
+    if let Some(log_id) = connection_log_id {
+        let _ = sqlx::query("UPDATE connection_logs SET rejected_event_count = rejected_event_count + 1 WHERE id = ?")
+            .bind(log_id)
+            .execute(&ctx.pool)
+            .await;
+    }
+    ctx.event_counter.record(event.kind, CounterAction::Rejected);
+    ctx.event_bus.publish(LiveEvent::EventRejected {
+        ts: chrono::Utc::now().to_rfc3339(),
+        kind: event.kind,
+        npub,
+        ip: Some(client_ip.to_string()),
+        reason: reason.to_string(),
+    });
+    let _ = client_out_tx.send(Message::Text(
+        serde_json::json!(["OK", event.id, true, ""]).to_string(),
+    ));
+}
+
+/// 自動ガード発火時の時限 Quarantine 自動発行（spec §5.14）。
+/// 同一 npub × 同一 reason の active エントリがあれば重複発行しない。
+async fn issue_auto_quarantine(ctx: &ProxyContext, npub: &str, reason: &str, secs: u64) {
+    let existing: Result<Option<(i64,)>, _> = sqlx::query_as(
+        "SELECT id FROM quarantine_entries WHERE npub = ? AND reason = ? AND active = 1            AND (expires_at IS NULL OR datetime(expires_at) > datetime('now')) LIMIT 1",
+    )
+    .bind(npub)
+    .bind(reason)
+    .fetch_optional(&ctx.pool)
+    .await;
+    if let Ok(Some(_)) = existing {
+        return;
+    }
+    let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(secs as i64))
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    match sqlx::query(
+        "INSERT INTO quarantine_entries (npub, scope, reason, expires_at) VALUES (?, 'post', ?, ?)",
+    )
+    .bind(npub)
+    .bind(reason)
+    .bind(&expires_at)
+    .execute(&ctx.pool)
+    .await
+    {
+        Ok(_) => {
+            tracing::warn!(npub = %npub, reason = %reason, expires_at = %expires_at, "auto guard fired: quarantine issued");
+        }
+        Err(e) => {
+            tracing::error!(npub = %npub, reason = %reason, error = %e, "auto guard: failed to issue quarantine");
+        }
+    }
 }
 
 #[allow(dead_code)]

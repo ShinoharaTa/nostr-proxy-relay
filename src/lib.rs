@@ -7,6 +7,7 @@ pub mod db;
 pub mod event_counter;
 pub mod event_stream;
 pub mod filter;
+pub mod guard;
 pub mod log_cleaner;
 pub mod metrics;
 pub mod nostr;
