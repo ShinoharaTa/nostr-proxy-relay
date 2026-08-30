@@ -63,8 +63,8 @@ Aggregated status used by the LP. 1-second cache. **Never includes npubs or IPs.
 
 ### Access Control
 
-- `GET    /api/post-policy`               POST policy (`allowlist` / `denylist`) and backend strategy
-- `PUT    /api/post-policy`               Update (**front-end shows confirmation modal on change**)
+- `GET    /api/post-policy`               POST policy (`allowlist` / `denylist`), backend strategy and write routing
+- `PUT    /api/post-policy`               Update (**front-end shows confirmation modal on change**). `write_routing`: `all` / `primary_default` (spec §5.15)
 - `GET    /api/safelist`                  npub list
 - `POST   /api/safelist`                  Upsert (`{ npub, flags, memo }`)
 - `DELETE /api/safelist/:npub`
@@ -96,6 +96,11 @@ Aggregated status used by the LP. 1-second cache. **Never includes npubs or IPs.
 - `POST   /api/translate/simple-to-dsl`   Quick BAN → DSL preview
 - `POST   /api/translate/dsl-to-simple`   DSL → Quick BAN (when reversible)
 - `POST   /api/translate/dry-run`         Apply DSL to one event and report the verdict
+- `GET    /api/auto-guard`                Auto guard settings + active content mutes (spec §5.14)
+- `PUT    /api/auto-guard`                Update auto guard settings (`{ enabled, burst_window_secs, burst_max_events, exclude_kinds, duplicate_threshold, duplicate_window_secs, quarantine_secs }`)
+- `DELETE /api/auto-guard/content-mutes`  Clear all content mutes (emergency release for false positives)
+- `GET    /api/stats/actors?by=ip|npub&window=1h|24h|7d|all&sort=...&limit=`  Actor aggregation (sorted desc + moderation status join, ui_redesign §14.2)
+- `GET    /api/actors/:type/:id`          Actor inspector detail (type: `ip` / `npub`)
 
 ### Operations
 
