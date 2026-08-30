@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Button, Modal, Tag, useToast } from '../primitives';
 import { PostPolicy as PostPolicyApi } from '../api';
-import type { BackendStrategy, PostPolicyValue } from '../api';
+import type { BackendStrategy, PostPolicyValue, WriteRouting } from '../api';
 import { useI18n } from '../i18n';
 
 const POLICY_INFO: Record<PostPolicyValue, { title: string; tone: 'info' | 'warn' }> = {
@@ -23,32 +23,38 @@ export function PostPolicyPage() {
     p === 'allowlist' ? t.postPolicy.allowlistDesc : t.postPolicy.denylistDesc;
   const [policy, setPolicy] = useState<PostPolicyValue>('denylist');
   const [strategy, setStrategy] = useState<BackendStrategy>('failover');
-  const [orig, setOrig] = useState<{ policy: PostPolicyValue; strategy: BackendStrategy } | null>(null);
+  const [routing, setRouting] = useState<WriteRouting>('all');
+  const [orig, setOrig] = useState<{ policy: PostPolicyValue; strategy: BackendStrategy; routing: WriteRouting } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     PostPolicyApi.get().then((r) => {
       setPolicy(r.policy);
       setStrategy(r.backend_strategy);
-      setOrig({ policy: r.policy, strategy: r.backend_strategy });
+      setRouting(r.write_routing);
+      setOrig({ policy: r.policy, strategy: r.backend_strategy, routing: r.write_routing });
     }).catch(() => undefined);
   }, []);
 
-  const dirty = !!orig && (orig.policy !== policy || orig.strategy !== strategy);
+  const dirty = !!orig && (orig.policy !== policy || orig.strategy !== strategy || orig.routing !== routing);
   const policyChanged = !!orig && orig.policy !== policy;
 
   const apply = async () => {
     setConfirmOpen(false);
     try {
-      const res = await PostPolicyApi.put({ policy, backend_strategy: strategy });
+      const res = await PostPolicyApi.put({ policy, backend_strategy: strategy, write_routing: routing });
       setPolicy(res.policy);
       setStrategy(res.backend_strategy);
-      setOrig({ policy: res.policy, strategy: res.backend_strategy });
+      setRouting(res.write_routing);
+      setOrig({ policy: res.policy, strategy: res.backend_strategy, routing: res.write_routing });
       toast.push({ variant: 'ok', message: `POST policy = ${res.policy}` });
     } catch (e) {
       toast.push({ variant: 'alert', message: t.common.saveFailed((e as Error).message) });
     }
   };
+
+  const routingDesc = (r: WriteRouting) =>
+    r === 'all' ? t.postPolicy.routingAllDesc : t.postPolicy.routingPrimaryDesc;
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -87,9 +93,27 @@ export function PostPolicyPage() {
         </div>
       </Card>
 
+      <Card title={<>WRITE ROUTING <span className="crt-hud-tag">{routing}</span></>}>
+        <p className="muted">{t.postPolicy.routingNote}</p>
+        <div className="radio-group">
+          {(['all', 'primary_default'] as WriteRouting[]).map((r) => (
+            <label key={r} className={`radio-card ${routing === r ? 'radio-card--active' : ''}`}>
+              <input
+                type="radio" name="write_routing" value={r}
+                checked={routing === r} onChange={() => setRouting(r)}
+              />
+              <div>
+                <strong>{r === 'all' ? 'ALL RELAYS' : 'PRIMARY DEFAULT'}</strong>
+                <span>{routingDesc(r)}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+      </Card>
+
       <div style={{ display: 'flex', gap: 8 }}>
         <Button variant="primary" disabled={!dirty} onClick={() => setConfirmOpen(true)}>APPLY</Button>
-        <Button variant="ghost"   disabled={!dirty} onClick={() => orig && (setPolicy(orig.policy), setStrategy(orig.strategy))}>RESET</Button>
+        <Button variant="ghost"   disabled={!dirty} onClick={() => orig && (setPolicy(orig.policy), setStrategy(orig.strategy), setRouting(orig.routing))}>RESET</Button>
       </div>
 
       <Modal

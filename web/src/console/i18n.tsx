@@ -80,6 +80,42 @@ export const consoleText = {
       released: '解除しました',
       created: '隔離しました',
       emptyHint: 'QUARANTINE で時限ミュートを追加できます',
+      autoGuardBadge: '自動ガードによる時限 Quarantine です。誤検知なら即解除できます。',
+    },
+    deck: {
+      liveEmpty: 'イベント待機中…',
+      stackEmpty: '対象期間にアクターがいません',
+      queueEmpty: '対応待ちはありません — ALL CLEAR',
+      permanentBan: '恒久BAN',
+      falsePositive: '誤検知解除',
+      rateWhy: (n: number, w: string) => `拒否 ${n} 件 / ${w} — 未対処`,
+      confirmIp: (mode: string, ip: string) =>
+        mode === 'hard_ban'
+          ? `${ip} を HARD BAN します。既存接続は切断され、以後の接続を拒否します。よろしいですか？`
+          : `${ip} を SHADOW BAN します。接続は受理しつつ投稿を無効化します。よろしいですか？`,
+      confirmNpubBan: (npub: string) => `${npub} を恒久 BAN します。よろしいですか？`,
+      confirmQuarantine: (npub: string) => `${npub} を 24 時間 Quarantine（POST 停止）します。よろしいですか？`,
+    },
+    autoGuard: {
+      intro: '検知は自動、恒久制裁はしません。発火時は時限 Quarantine を自動発行するだけで、失効後は自動復帰します。IP whitelist / safelist フラグ持ちの npub には一切発火しません。',
+      burstTitle: 'バースト投稿レート',
+      burstDesc: 'pubkey ごとの sliding window。窓内の POST が上限を超えたら発火。ephemeral / replaceable / 除外 kind はカウントされません。',
+      dupTitle: '同一イベント検知',
+      dupDesc: '異なる接続 (IP) から同一 content が閾値以上 POST されたら発火し、その内容を npub 不問で一時 mute します（捨て鍵対策）。',
+      enabledLabel: '自動ガードを有効にする',
+      windowSecs: '窓 (秒)',
+      maxEvents: '窓内の上限件数',
+      excludeKinds: '除外 kind (CSV)',
+      dupThreshold: 'IP 数の閾値',
+      dupWindowSecs: '観測窓 (秒)',
+      quarantineSecs: 'Quarantine / mute 期間 (秒)',
+      mutesTitle: 'アクティブな content mute',
+      mutesEmpty: 'アクティブな content mute はありません',
+      clearMutes: '全クリア',
+      confirmClear: 'content mute を全てクリアしますか？（誤検知時の緊急解除）',
+      cleared: (n: number) => `${n} 件クリアしました`,
+      savedOn: '自動ガードを有効化しました',
+      savedOff: '自動ガードを無効化しました',
     },
     ipacl: {
       emptyHint: 'ADD で IP / CIDR を追加してください',
@@ -94,6 +130,8 @@ export const consoleText = {
       banned: 'BAN しました',
       unbanned: 'unban しました',
       emptyHint: 'ADD で公開鍵を追加してください',
+      broadcastOn: 'BROADCAST を付与しました（全リレーへ fan-out）',
+      broadcastOff: 'BROADCAST を解除しました',
     },
     kind: {
       emptyHint: '特定 kind を REQ レベルで弾けます。kind 番号を指定して追加してください。',
@@ -131,6 +169,9 @@ export const consoleText = {
     postPolicy: {
       allowlistDesc: '原則 deny。allowlist にある npub からの POST のみ受け付ける。閉じた運用向き。',
       denylistDesc: '原則 allow。denylist にある npub だけ拒否。広く公開する一般運用向き。',
+      routingAllDesc: '全ての write 有効リレーへ送信（従来どおり）。',
+      routingPrimaryDesc: 'BROADCAST フラグを持つ npub のみ全リレーへ。他は primary リレーだけに送信。',
+      routingNote: 'primary_default では、Npub 画面で BROADCAST を付けた npub（自分など）だけが全リレーへ fan-out されます。',
       strategyDescs: {
         failover: '優先度順に 1 つだけ送信、失敗時に次へ',
         fan_out_event: '受け取った POST を複数 backend に同送',
@@ -206,6 +247,42 @@ export const consoleText = {
       released: 'Released',
       created: 'Quarantined',
       emptyHint: 'Add a timed mute with QUARANTINE',
+      autoGuardBadge: 'Timed quarantine issued by Auto Guard. Release immediately if it is a false positive.',
+    },
+    deck: {
+      liveEmpty: 'Waiting for events…',
+      stackEmpty: 'No actors in the selected window',
+      queueEmpty: 'Nothing pending — ALL CLEAR',
+      permanentBan: 'PERMANENT BAN',
+      falsePositive: 'FALSE POSITIVE',
+      rateWhy: (n: number, w: string) => `${n} rejections / ${w} — unhandled`,
+      confirmIp: (mode: string, ip: string) =>
+        mode === 'hard_ban'
+          ? `Hard-ban ${ip}? Existing connections are disconnected and future ones rejected.`
+          : `Shadow-ban ${ip}? Connections are accepted but posts are silently voided.`,
+      confirmNpubBan: (npub: string) => `Permanently ban ${npub}?`,
+      confirmQuarantine: (npub: string) => `Quarantine ${npub} for 24 hours (block POST)?`,
+    },
+    autoGuard: {
+      intro: 'Detection is automatic; punishment never is permanent. On trigger it only issues a timed quarantine that expires on its own. Npubs with IP whitelist / safelist flags are always exempt.',
+      burstTitle: 'Burst posting rate',
+      burstDesc: 'Sliding window per pubkey. Fires when POSTs within the window exceed the limit. Ephemeral / replaceable / excluded kinds are not counted.',
+      dupTitle: 'Identical event detection',
+      dupDesc: 'Fires when the same content is POSTed from a threshold number of distinct connections (IPs); the content is then temporarily muted regardless of npub (throwaway-key defense).',
+      enabledLabel: 'Enable Auto Guard',
+      windowSecs: 'Window (sec)',
+      maxEvents: 'Max events per window',
+      excludeKinds: 'Excluded kinds (CSV)',
+      dupThreshold: 'Distinct IP threshold',
+      dupWindowSecs: 'Observation window (sec)',
+      quarantineSecs: 'Quarantine / mute duration (sec)',
+      mutesTitle: 'Active content mutes',
+      mutesEmpty: 'No active content mutes',
+      clearMutes: 'CLEAR ALL',
+      confirmClear: 'Clear all content mutes? (emergency release for false positives)',
+      cleared: (n: number) => `Cleared ${n} mute(s)`,
+      savedOn: 'Auto Guard enabled',
+      savedOff: 'Auto Guard disabled',
     },
     ipacl: {
       emptyHint: 'Use ADD to register an IP / CIDR',
@@ -220,6 +297,8 @@ export const consoleText = {
       banned: 'Banned',
       unbanned: 'Unbanned',
       emptyHint: 'Use ADD to register a public key',
+      broadcastOn: 'BROADCAST granted (fan-out to all relays)',
+      broadcastOff: 'BROADCAST revoked',
     },
     kind: {
       emptyHint: 'Block specific kinds at the REQ level. Add rules by kind number.',
@@ -257,6 +336,9 @@ export const consoleText = {
     postPolicy: {
       allowlistDesc: 'Deny by default. Only POSTs from npubs on the allowlist are accepted. For closed deployments.',
       denylistDesc: 'Allow by default. Only npubs on the denylist are rejected. For open, public deployments.',
+      routingAllDesc: 'Send to every write-enabled relay (legacy behavior).',
+      routingPrimaryDesc: 'Only npubs with the BROADCAST flag fan out to all relays; everyone else writes to primary relays only.',
+      routingNote: 'With primary_default, only npubs given BROADCAST on the Npub page (e.g. yourself) fan out to all relays.',
       strategyDescs: {
         failover: 'Send to one backend by priority; fall through on failure',
         fan_out_event: 'Duplicate incoming POSTs to multiple backends',

@@ -10,28 +10,32 @@
          値を WD1 ctOS / Profiler 相当に統一。 */
 
 :root {
-  /* ─ Surface (暗茶: WD1 街路の汚れ) ─ */
-  --crt-bg:        #0d0a07;            /* 漆黒ではなく、わずかに暗茶 */
-  --crt-bg-soft:   #15110b;
-  --crt-bg-card:   rgba(28, 22, 14, 0.94);
+  /* ══ GOD'S EYE テーマ (mock-layouts/b2-godseye.html で 2026-08 選定) ══
+     情報戦 FUI: 暖色ブラック + オレンジ (accent) × ティール (info)。
+     変数名は互換性のため --crt-* のまま。旧 PROFILER 値は git 履歴参照。 */
 
-  /* ─ Foreground (アイボリー: 純白は使わない) ─
+  /* ─ Surface (暖色ブラック) ─ */
+  --crt-bg:        #0b0602;
+  --crt-bg-soft:   #150d05;
+  --crt-bg-card:   rgba(24, 15, 7, 0.93);
+
+  /* ─ Foreground (ウォームアイボリー: 純白は使わない) ─
      fg-dim はラベル用 (bg 上 ≥6:1)。fg-muted はデータ本文の弱調用 (≥8:1)。 */
-  --crt-fg:        #e6e0d4;
-  --crt-fg-muted:  #b3a78f;
-  --crt-fg-dim:    #9a8d77;
+  --crt-fg:        #f2e5d5;
+  --crt-fg-muted:  #c2a888;
+  --crt-fg-dim:    #8a7358;
 
-  /* ─ Semantic colors (WD1 ctOS / Profiler 抽出) ─ */
-  --crt-accent:    #c4d140;            /* WD1 ctOS 鈍い黄緑 */
-  --crt-accent-2:  #d6e26b;
-  --crt-info:      #6dc4d8;            /* WD1 ダークシアン由来 connected */
-  --crt-warn:      #d4863e;            /* WD1 オレンジ茶 warning */
-  --crt-danger:    #d03d3e;            /* WD1 アラート赤 (Heat Level) — 塗り/枠用 */
-  --crt-danger-text: #e05a5b;          /* 小サイズ文字用の明るい danger (AA 確保) */
+  /* ─ Semantic colors (God's Eye) ─ */
+  --crt-accent:    #ff8c2a;            /* トラッキングオレンジ */
+  --crt-accent-2:  #ffa04d;
+  --crt-info:      #2ad4c8;            /* メッシュティール (connected / data) */
+  --crt-warn:      #ffb347;
+  --crt-danger:    #ff3b30;            /* 塗り/枠用 */
+  --crt-danger-text: #ff6a57;          /* 小サイズ文字用の明るい danger (AA 確保) */
 
-  /* ─ Borders (暗茶) ─ */
-  --crt-border:    #3c3020;
-  --crt-border-strong: #5c4a2e;
+  /* ─ Borders (焦げ茶) ─ */
+  --crt-border:    #3a2a16;
+  --crt-border-strong: #6b4a24;
 
   /* ─ Typography (Helvetica + IBM Plex Mono + VT323) ─ */
   --crt-font-display: 'Arimo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -51,9 +55,9 @@
   --crt-radius-dot: 50%;
 
   /* ─ Glow (PROFILER は控えめ。装飾は border / >> 矢印に集中) ─ */
-  --crt-glow-primary: 0 0 6px rgba(196, 209, 64, 0.20);
-  --crt-glow-bar:     0 0 4px rgba(196, 209, 64, 0.30);
-  --crt-text-glow:    0 0 4px rgba(196, 209, 64, 0.20);
+  --crt-glow-primary: 0 0 8px rgba(255, 140, 42, 0.25);
+  --crt-glow-bar:     0 0 5px rgba(255, 140, 42, 0.35);
+  --crt-text-glow:    0 0 5px rgba(255, 140, 42, 0.25);
 
   /* ─ z-index layers ─ */
   --crt-z-content:      1;

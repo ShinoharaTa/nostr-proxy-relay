@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Modal, ModeBadge, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Modal, ModeBadge, Pill, Tag, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
-import { IpAcl as IpAclApi } from '../api';
-import type { IpAccessControlRow, IpAclMode } from '../api';
+import { Actors, IpAcl as IpAclApi } from '../api';
+import type { ActorWindow, IpAccessControlRow, IpAclMode, IpActorRow } from '../api';
+import { usePolling } from '../utils/usePolling';
 import { ago } from '../utils/format';
 import { useI18n } from '../i18n';
+
+const WINDOWS: { id: ActorWindow; label: string }[] = [
+  { id: '1h', label: '1h' }, { id: '24h', label: '24h' }, { id: '7d', label: '7d' }, { id: 'all', label: 'ALL' },
+];
 
 const MODES: IpAclMode[] = ['hard_ban', 'shadow_ban', 'whitelist', 'normal'];
 
@@ -23,8 +28,27 @@ export function IpAclPage() {
   const [editing, setEditing] = useState<IpAccessControlRow | null>(null);
   const [confirmHardBan, setConfirmHardBan] = useState<{ ip: string; cb: () => void } | null>(null);
 
-  const reload = () => IpAclApi.list().then(setRows).catch(() => setRows([]));
+  const [window_, setWindow] = useState<ActorWindow>('1h');
+  const actors = usePolling((sig) => Actors.topIps(window_, 'connections', sig), 15000, [window_]);
+
+  const reload = () => { IpAclApi.list().then(setRows).catch(() => setRows([])); actors.refresh(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, []);
+
+  /* TOP SOURCES からのワンクリック制裁。hard_ban は既存の確認モーダルを通す */
+  const quickBan = (ip: string, mode: 'hard_ban' | 'shadow_ban') => {
+    const doApply = async () => {
+      try {
+        await IpAclApi.create({ ip_address: ip, mode, memo: 'from top sources' });
+        reload();
+        toast.push({ variant: 'ok', message: t.common.applied });
+      } catch (e) {
+        toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+      }
+    };
+    if (mode === 'hard_ban') setConfirmHardBan({ ip, cb: doApply });
+    else if (confirm(t.deck.confirmIp('shadow_ban', ip))) doApply();
+  };
 
   const remove = async (id: number) => {
     if (!confirm(t.common.confirmDelete)) return;
@@ -71,8 +95,53 @@ export function IpAclPage() {
     },
   ];
 
+  const topCols: Column<IpActorRow>[] = [
+    { key: 'connections', label: 'CONNS', width: 90, sortValue: (r) => r.connections,
+      render: (r) => <span className="num">{r.connections.toLocaleString()}</span> },
+    { key: 'events', label: 'EVENTS', width: 90, hideOnMobile: true, sortValue: (r) => r.events,
+      render: (r) => r.events.toLocaleString() },
+    { key: 'rejections', label: 'REJECT', width: 90, sortValue: (r) => r.rejections,
+      render: (r) => r.rejections > 0
+        ? <span style={{ color: 'var(--crt-danger-text)' }}>{r.rejections.toLocaleString()}</span>
+        : '0' },
+    { key: 'ip', label: 'IP', render: (r) => <code>{r.ip}</code> },
+    { key: 'state', label: 'STATE', width: 140,
+      render: (r) => (
+        <span style={{ display: 'inline-flex', gap: 6 }}>
+          {r.mode === 'normal'
+            ? <Tag variant="dim">—</Tag>
+            : <ModeBadge mode={MODE_BADGE[r.mode]}>{r.mode.toUpperCase()}</ModeBadge>}
+          {r.active_connections > 0 && <Tag variant="info">{r.active_connections} LIVE</Tag>}
+        </span>
+      ) },
+    { key: 'last', label: 'LAST', width: 90, hideOnMobile: true,
+      render: (r) => <span title={r.last_seen}>{ago(r.last_seen)}</span> },
+    { key: 'actions', label: '', width: 150,
+      render: (r) => r.mode === 'normal' ? (
+        <span style={{ display: 'inline-flex', gap: 6 }}>
+          <Button variant="danger" onClick={() => quickBan(r.ip, 'hard_ban')}>BAN</Button>
+          <Button variant="ghost" onClick={() => quickBan(r.ip, 'shadow_ban')}>SHADOW</Button>
+        </span>
+      ) : null },
+  ];
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
+      <Card
+        title={<>TOP SOURCES <span className="crt-hud-tag">{window_} · {(actors.data ?? []).length}</span></>}
+        actions={<Pill items={WINDOWS} active={window_} onChange={(v) => setWindow(v as ActorWindow)} ariaLabel="window" />}
+      >
+        <DataList
+          rows={actors.data ?? []}
+          columns={topCols}
+          rowKey={(r) => r.ip}
+          initialSort={{ key: 'connections', dir: 'desc' }}
+          filter={{ placeholder: 'filter ip…', match: (r, q) => r.ip.includes(q) }}
+          emptyTitle="NO TRAFFIC"
+          emptyHint={t.deck.stackEmpty}
+        />
+      </Card>
+
       <Card
         title={<>IP ACL <span className="crt-hud-tag">{rows?.length ?? 0} entries</span></>}
         actions={

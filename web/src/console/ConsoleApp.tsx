@@ -7,6 +7,7 @@ import { ConsoleI18nProvider } from './i18n';
 import { ToastHost } from './primitives/Toast';
 import { Showroom } from './pages/Showroom';
 import { Dashboard } from './pages/Dashboard';
+import { DeckPage } from './pages/Deck';
 import { LiveEvents } from './pages/LiveEvents';
 import { LogsPage } from './pages/Logs';
 import { BackendRelays } from './pages/BackendRelays';
@@ -18,6 +19,7 @@ import { QuarantinePage } from './pages/Quarantine';
 import { KindBlocklistPage } from './pages/KindBlocklist';
 import { DslRulesPage } from './pages/DslRules';
 import { QuickBanPage } from './pages/QuickBan';
+import { AutoGuardPage } from './pages/AutoGuard';
 import { TelemetryPage } from './pages/Telemetry';
 import { SystemPage } from './pages/SystemPage';
 
@@ -34,9 +36,10 @@ export function ConsoleApp() {
       <AppShell>
         <Routes>
           {/* OVERVIEW */}
-          <Route path="/"     element={<Dashboard />} />
-          <Route path="/live" element={<LiveEvents />} />
-          <Route path="/logs" element={<LogsPage />} />
+          <Route path="/"          element={<DeckPage />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/live"      element={<LiveEvents />} />
+          <Route path="/logs"      element={<LogsPage />} />
 
           {/* BACKEND */}
           <Route path="/backend/relays" element={<BackendRelays />} />
@@ -52,6 +55,7 @@ export function ConsoleApp() {
           <Route path="/filter/kind"      element={<KindBlocklistPage />} />
           <Route path="/filter/dsl"       element={<DslRulesPage />} />
           <Route path="/filter/quick-ban" element={<QuickBanPage />} />
+          <Route path="/filter/auto-guard" element={<AutoGuardPage />} />
 
           {/* OPERATIONS */}
           <Route path="/operations/telemetry" element={<TelemetryPage />} />
@@ -61,7 +65,6 @@ export function ConsoleApp() {
           <Route path="/__dev" element={<Showroom />} />
 
           {/* 旧 URL の互換用 fallback */}
-          <Route path="/dashboard"  element={<Navigate to="/" replace />} />
           <Route path="/relays"     element={<Navigate to="/backend/relays" replace />} />
           <Route path="/post-pol"   element={<Navigate to="/access/post-policy" replace />} />
           <Route path="/ip-acl"     element={<Navigate to="/access/ip" replace />} />

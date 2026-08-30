@@ -40,7 +40,12 @@ export function QuarantinePage() {
     { key: 'npub',  label: 'NPUB',  render: (r) => <code className="logs-cell-mono">{r.npub}</code> },
     { key: 'scope', label: 'SCOPE', width: 80,
       render: (r) => <Tag variant={r.scope === 'all' ? 'alert' : 'warn'}>{r.scope.toUpperCase()}</Tag> },
-    { key: 'reason', label: 'REASON', render: (r) => r.reason || '—', hideOnMobile: true },
+    { key: 'reason', label: 'REASON', hideOnMobile: true,
+      render: (r) => r.reason.startsWith('auto_guard:')
+        ? <span title={t.quarantine.autoGuardBadge} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <Tag variant="warn">AUTO</Tag>{r.reason}
+          </span>
+        : (r.reason || '—') },
     { key: 'created', label: 'STARTED', render: (r) => <span title={r.created_at}>{ago(r.created_at)}</span>, width: 100 },
     { key: 'expires', label: 'EXPIRES', width: 130,
       render: (r) => r.expires_at
