@@ -121,6 +121,22 @@ pub struct Verdict {
     pub suggested_rule: Option<serde_json::Value>,
 }
 
+/// 調査結果として返す 1 イベント。**保存はしない**（レスポンスに乗せるだけ）。
+/// content 本文は返さず、同一性判定用のハッシュ先頭だけを返す。
+#[derive(Debug, Serialize)]
+pub struct EventRow {
+    pub id: String,
+    pub pubkey: String,
+    pub kind: i64,
+    pub created_at: i64,
+    /// このイベントを返した上流リレー
+    pub relays: Vec<String>,
+    /// content SHA-256 の先頭 16 文字（同一内容のグルーピング用）
+    pub content_hash: String,
+    pub content_len: usize,
+    pub tag_count: usize,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Analysis {
     pub fetched: usize,
@@ -128,6 +144,10 @@ pub struct Analysis {
     pub by_relay: Vec<RelayStat>,
     pub authors_unique: usize,
     pub top_authors: Vec<Counted>,
+    /// 投稿者ごとの出現回数（全件）。UI 側でソート・絞り込みして使う
+    pub author_counts: Vec<Counted>,
+    /// 取得したイベント一覧（新しい順）
+    pub events: Vec<EventRow>,
     pub content_unique: usize,
     pub top_contents: Vec<Counted>,
     pub common_tags: Vec<TagStat>,
@@ -283,6 +303,29 @@ pub fn analyze(collected: &[CollectedEvent], stats: Vec<RelayStat>) -> Analysis 
     let content_unique = contents.len();
     let top_authors = top_n(authors.clone(), 5);
     let top_contents = top_n(contents.clone(), 5);
+    // 全件の重複回数（上位 5 件だけでは「この npub が何回出たか」を追えないため）
+    let author_counts = top_n(authors.clone(), usize::MAX);
+
+    // イベント一覧（新しい順）。本文は返さずハッシュ先頭のみ
+    let mut events: Vec<EventRow> = collected
+        .iter()
+        .map(|c| {
+            let mut h = Sha256::new();
+            h.update(c.event.content.as_bytes());
+            let hash = hex::encode(h.finalize());
+            EventRow {
+                id: c.event.id.clone(),
+                pubkey: c.event.pubkey.clone(),
+                kind: c.event.kind,
+                created_at: c.event.created_at,
+                relays: c.relays.clone(),
+                content_hash: hash[..16].to_string(),
+                content_len: c.event.content.chars().count(),
+                tag_count: c.event.tags.len(),
+            }
+        })
+        .collect();
+    events.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     // 網羅率 50% 以上のタグだけを「共通タグ」として出す
     let mut common_tags: Vec<TagStat> = tags
@@ -307,6 +350,8 @@ pub fn analyze(collected: &[CollectedEvent], stats: Vec<RelayStat>) -> Analysis 
         by_relay: stats,
         authors_unique,
         top_authors,
+        author_counts,
+        events,
         content_unique,
         top_contents,
         common_tags,
@@ -523,6 +568,29 @@ mod tests {
         }
         let a = analyze(&evs, stats());
         assert!(a.verdicts.is_empty(), "unexpected verdicts: {:?}", a.verdicts);
+    }
+
+    #[test]
+    fn reports_full_author_counts_and_event_rows() {
+        // pk-a が 3 回、pk-b が 2 回、pk-c が 1 回
+        let mut evs = Vec::new();
+        for (i, pk) in ["pk-a", "pk-a", "pk-a", "pk-b", "pk-b", "pk-c"].iter().enumerate() {
+            evs.push(ev(&format!("e{i}"), pk, &format!("content {i}"), 1000 + i as i64 * 17, vec![]));
+        }
+        let a = analyze(&evs, stats());
+
+        // 全件分布が回数付きで降順に出る
+        assert_eq!(a.author_counts.len(), 3);
+        assert_eq!(a.author_counts[0].value, "pk-a");
+        assert_eq!(a.author_counts[0].count, 3);
+        assert_eq!(a.author_counts[1].count, 2);
+        assert_eq!(a.author_counts[2].count, 1);
+
+        // イベント一覧は新しい順、本文は含めずハッシュのみ
+        assert_eq!(a.events.len(), 6);
+        assert!(a.events[0].created_at >= a.events[1].created_at);
+        assert_eq!(a.events[0].content_hash.len(), 16);
+        assert_eq!(a.events[0].relays, vec!["wss://a".to_string()]);
     }
 
     #[test]

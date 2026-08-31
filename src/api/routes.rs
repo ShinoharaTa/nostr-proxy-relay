@@ -46,6 +46,8 @@ pub fn router(state: ApiState, throttle: AuthThrottle) -> Router {
     Router::new()
         .route("/relay", get(get_relays).put(put_relays))
         .route("/relay-status", get(get_relay_status))
+        .route("/relay/suspend", post(post_relay_suspend))
+        .route("/relay/resume", post(post_relay_resume))
         .route("/relay-nip11", get(get_relay_nip11))
         .route("/safelist", get(list_safelist).post(upsert_safelist))
         .route("/safelist/:npub", delete(delete_safelist))
@@ -110,7 +112,116 @@ pub fn router(state: ApiState, throttle: AuthThrottle) -> Router {
 
 async fn get_relay_status(State(s): State<ApiState>) -> Json<serde_json::Value> {
     let relays = s.relay_pool.status_snapshot().await;
-    Json(serde_json::json!({ "relays": relays }))
+    // 一時停止中のリレーは残り時間を返す（Issue #33）
+    let suspended: Vec<(String, String)> = sqlx::query_as(
+        "SELECT url, disabled_until FROM relay_config \
+         WHERE enabled = 0 AND disabled_until IS NOT NULL",
+    )
+    .fetch_all(&s.pool)
+    .await
+    .unwrap_or_default();
+    Json(serde_json::json!({
+        "relays": relays,
+        "suspended": suspended.into_iter()
+            .map(|(url, until)| serde_json::json!({ "url": url, "until": until }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RelaySuspendBody {
+    pub url: String,
+    /// 既定 1 時間。上限 7 日（それ以上外すなら恒久的に無効化すべき）
+    #[serde(default)]
+    pub duration_secs: Option<i64>,
+}
+
+/// 上流リレーを期限付きで切り離す（Issue #33）。
+/// 期限が来たら `RelayPool` の sweep が自動で戻す。
+async fn post_relay_suspend(
+    State(s): State<ApiState>,
+    Json(body): Json<RelaySuspendBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let secs = body.duration_secs.unwrap_or(3600).clamp(60, 7 * 24 * 3600);
+
+    // 読み取り経路を全滅させないため、有効な最後の 1 本は止めさせない
+    let enabled: Vec<(String,)> =
+        sqlx::query_as("SELECT url FROM relay_config WHERE enabled = 1")
+            .fetch_all(&s.pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if !enabled.iter().any(|u| u.0 == body.url) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("有効なリレーに {} が見つかりません", body.url),
+        ));
+    }
+    if enabled.len() <= 1 {
+        return Err((
+            StatusCode::CONFLICT,
+            "有効なリレーが 1 本しかありません。これを止めると配信経路が無くなります".to_string(),
+        ));
+    }
+
+    let until: (String,) = sqlx::query_as("SELECT datetime('now', ?)")
+        .bind(format!("+{secs} seconds"))
+        .fetch_one(&s.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    sqlx::query(
+        "UPDATE relay_config SET enabled = 0, disabled_until = ?, updated_at = datetime('now') WHERE url = ?",
+    )
+    .bind(&until.0)
+    .bind(&body.url)
+    .execute(&s.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let _ = sqlx::query("INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)")
+        .bind(&body.url)
+        .bind("suspended")
+        .bind(format!("until {}", until.0))
+        .execute(&s.pool)
+        .await;
+
+    // live な接続へ再起動なしで反映
+    s.settings.notify();
+    tracing::warn!(url = %body.url, until = %until.0, "relay suspended");
+    Ok(Json(serde_json::json!({ "url": body.url, "until": until.0 })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RelayResumeBody {
+    pub url: String,
+}
+
+/// 一時停止中の上流リレーを即時復帰させる。
+async fn post_relay_resume(
+    State(s): State<ApiState>,
+    Json(body): Json<RelayResumeBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let res = sqlx::query(
+        "UPDATE relay_config SET enabled = 1, disabled_until = NULL, updated_at = datetime('now') WHERE url = ?",
+    )
+    .bind(&body.url)
+    .execute(&s.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if res.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, format!("{} が見つかりません", body.url)));
+    }
+
+    let _ = sqlx::query("INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)")
+        .bind(&body.url)
+        .bind("restored")
+        .bind("manual resume")
+        .execute(&s.pool)
+        .await;
+
+    s.settings.notify();
+    tracing::info!(url = %body.url, "relay resumed");
+    Ok(Json(serde_json::json!({ "url": body.url })))
 }
 
 #[derive(Serialize)]

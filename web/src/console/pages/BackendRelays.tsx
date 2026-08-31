@@ -20,6 +20,40 @@ export function BackendRelays() {
     (status.data?.relays ?? []).forEach((r) => m.set(r.url, r));
     return m;
   }, [status.data]);
+  /** 一時停止中の URL → 復帰予定時刻（Issue #33） */
+  const suspendedMap = useMemo(() => {
+    const m = new Map<string, string>();
+    (status.data?.suspended ?? []).forEach((r) => m.set(r.url, r.until));
+    return m;
+  }, [status.data]);
+
+  const suspend = async (url: string) => {
+    const ok = await confirm({
+      title: t.investigate.suspendTitle,
+      body: t.investigate.suspendBody(url),
+      confirmLabel: t.investigate.suspendConfirm,
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const r = await Relays.suspend(url, 3600);
+      toast.push({ variant: 'ok', message: t.investigate.suspended(url, r.until) });
+      status.refresh();
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    }
+  };
+
+  const resume = async (url: string) => {
+    try {
+      await Relays.resume(url);
+      toast.push({ variant: 'ok', message: t.common.applied });
+      status.refresh();
+      Relays.list().then(setRows);
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    }
+  };
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -50,12 +84,22 @@ export function BackendRelays() {
 
   const cols: Column<DraftRow>[] = [
     {
-      key: 'status', label: 'STATUS', width: 110,
+      key: 'status', label: 'STATUS', width: 150,
       render: (r) => {
+        const until = suspendedMap.get(r.url);
+        if (until) {
+          return <Tag variant="warn" title={`until ${until}`}>SUSPENDED</Tag>;
+        }
         const s = statusMap.get(r.url);
         const v = !s ? 'idle' : s.status === 'connected' ? 'live' : s.status === 'connecting' ? 'warn' : 'alert';
         return <StatusDot variant={v}>{s?.status ?? 'unknown'}</StatusDot>;
       },
+    },
+    {
+      key: 'suspend', label: '', width: 140,
+      render: (r) => suspendedMap.has(r.url)
+        ? <Button variant="ghost" onClick={() => resume(r.url)}>{t.backend.resume}</Button>
+        : <Button variant="ghost" onClick={() => suspend(r.url)}>{t.investigate.suspend1h}</Button>,
     },
     { key: 'url', label: 'URL', render: (r) => <code>{r.url}</code> },
     {

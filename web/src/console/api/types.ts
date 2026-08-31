@@ -12,6 +12,8 @@ export interface RelayConfigRow {
   write_enabled: boolean;
 }
 
+export interface SuspendedRelay { url: string; until: string }
+
 export interface RelayStatus {
   url: string;
   status: string;
@@ -221,12 +223,27 @@ export interface Verdict {
   suggested_rule: unknown | null;
 }
 
+export interface EventRow {
+  id: string;
+  pubkey: string;
+  kind: number;
+  created_at: number;
+  relays: string[];
+  content_hash: string;
+  content_len: number;
+  tag_count: number;
+}
+
 export interface Analysis {
   fetched: number;
   unique_events: number;
   by_relay: RelayStat[];
   authors_unique: number;
   top_authors: Counted[];
+  /** 投稿者ごとの出現回数（全件） */
+  author_counts: Counted[];
+  /** 取得したイベント一覧（新しい順） */
+  events: EventRow[];
   content_unique: number;
   top_contents: Counted[];
   common_tags: TagStat[];

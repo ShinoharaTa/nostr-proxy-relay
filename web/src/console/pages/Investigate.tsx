@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, Button, DataList, type Column, Tag, useConfirm, useToast } from '../primitives';
-import { Investigate as Api, IpAcl, SimpleBan } from '../api';
-import type { Counted, InvestigateResponse, RelayStat, TagStat, Verdict } from '../api';
+import { Investigate as Api, IpAcl, Quarantine as QApi, Relays, SimpleBan } from '../api';
+import type { Counted, EventRow, InvestigateResponse, RelayStat, TagStat, Verdict } from '../api';
 import { useI18n } from '../i18n';
 
 /**
@@ -67,12 +67,80 @@ export function InvestigatePage() {
     }
   };
 
+  const banNpub = async (pubkey: string) => {
+    if (!(await confirm({ ...t.deck.confirmNpubBan(pubkey), destructive: true }))) return;
+    try {
+      await SimpleBan.create({ rule_type: 'npub', npub_list: pubkey, apply_to_post: true, apply_to_backend: true });
+      toast.push({ variant: 'ok', message: t.common.added });
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    }
+  };
+
+  const quarantineNpub = async (pubkey: string) => {
+    if (!(await confirm({ ...t.deck.confirmQuarantine(pubkey), destructive: true }))) return;
+    try {
+      await QApi.create({ npub: pubkey, scope: 'post', reason: 'from investigation', duration_secs: 24 * 3600 });
+      toast.push({ variant: 'ok', message: t.quarantine.created });
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    }
+  };
+
+  /** 悪いイベントの配信元を期限付きで切り離す。期限が来れば自動で戻る */
+  const suspendRelay = async (url: string) => {
+    const ok = await confirm({
+      title: t.investigate.suspendTitle,
+      body: t.investigate.suspendBody(url),
+      confirmLabel: t.investigate.suspendConfirm,
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const r = await Relays.suspend(url, 3600);
+      toast.push({ variant: 'ok', message: t.investigate.suspended(url, r.until) });
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    }
+  };
+
+  const authorCols: Column<Counted>[] = [
+    { key: 'count', label: t.investigate.dupCount, width: 90, sortValue: (r) => r.count,
+      render: (r) => <span style={{ color: r.count > 1 ? 'var(--crt-danger-text)' : undefined }}>{r.count}</span> },
+    { key: 'pk', label: 'PUBKEY', render: (r) => <code className="logs-cell-mono">{r.value}</code> },
+    { key: 'act', label: '', width: 190,
+      render: (r) => (
+        <span style={{ display: 'inline-flex', gap: 6 }}>
+          <Button variant="danger" onClick={() => banNpub(r.value)}>BAN</Button>
+          <Button variant="ghost" onClick={() => quarantineNpub(r.value)}>Q 24h</Button>
+        </span>
+      ) },
+  ];
+
+  const eventCols: Column<EventRow>[] = [
+    { key: 'at', label: 'CREATED', width: 150, sortValue: (r) => r.created_at,
+      render: (r) => <code>{new Date(r.created_at * 1000).toISOString().slice(0, 19).replace('T', ' ')}</code> },
+    { key: 'pk', label: 'PUBKEY', render: (r) => <code className="logs-cell-mono">{r.pubkey.slice(0, 24)}…</code> },
+    { key: 'kind', label: 'KIND', width: 70, sortValue: (r) => r.kind, render: (r) => r.kind },
+    { key: 'hash', label: 'CONTENT', width: 170, hideOnMobile: true,
+      render: (r) => <code title={`${r.content_len} chars`}>{r.content_hash}</code> },
+    { key: 'tags', label: 'TAGS', width: 70, hideOnMobile: true, sortValue: (r) => r.tag_count, render: (r) => r.tag_count },
+    { key: 'relays', label: 'FROM', hideOnMobile: true,
+      render: (r) => <span className="muted">{r.relays.map((u) => u.replace('wss://', '')).join(', ')}</span> },
+  ];
+
   const relayCols: Column<RelayStat>[] = [
     { key: 'url', label: 'RELAY', render: (r) => <code>{r.url}</code> },
     { key: 'count', label: 'EVENTS', width: 90, sortValue: (r) => r.count, render: (r) => r.count },
     { key: 'ms', label: 'LATENCY', width: 100, sortValue: (r) => r.latency_ms, render: (r) => `${r.latency_ms}ms` },
     { key: 'ok', label: '', width: 90,
       render: (r) => r.completed ? <Tag variant="info">EOSE</Tag> : <Tag variant="warn">TIMEOUT</Tag> },
+    { key: 'act', label: '', width: 130,
+      render: (r) => (
+        <Button variant="danger" onClick={() => suspendRelay(r.url)} title={t.investigate.suspendTitle}>
+          {t.investigate.suspend1h}
+        </Button>
+      ) },
   ];
 
   const a = res?.analysis;
@@ -176,14 +244,25 @@ export function InvestigatePage() {
             </Card>
           )}
 
-          <Card title={t.investigate.topAuthors}>
+          <Card title={<>{t.investigate.authorDist} <span className="crt-hud-tag">{a.authors_unique} unique</span></>}>
             <DataList
-              rows={a.top_authors}
-              columns={[
-                { key: 'v', label: 'PUBKEY', render: (r: Counted) => <code className="logs-cell-mono">{r.value}</code> },
-                { key: 'c', label: 'COUNT', width: 90, render: (r: Counted) => r.count },
-              ]}
+              rows={a.author_counts}
+              columns={authorCols}
               rowKey={(r) => r.value}
+              initialSort={{ key: 'count', dir: 'desc' }}
+              filter={{ placeholder: 'filter pubkey…', match: (r, q) => r.value.includes(q) }}
+              emptyTitle="NONE"
+            />
+          </Card>
+
+          <Card title={<>{t.investigate.eventList} <span className="crt-hud-tag">{a.events.length}</span></>}>
+            <DataList
+              rows={a.events}
+              columns={eventCols}
+              rowKey={(r) => r.id}
+              initialSort={{ key: 'at', dir: 'desc' }}
+              filter={{ placeholder: 'filter pubkey / hash…',
+                        match: (r, q) => r.pubkey.includes(q) || r.content_hash.includes(q) }}
               emptyTitle="NONE"
             />
           </Card>

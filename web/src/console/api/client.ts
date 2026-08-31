@@ -27,6 +27,7 @@ import type {
   RelayEventLogRow,
   RelayInfoRow,
   RelayStatus,
+  SuspendedRelay,
   ReqKindBlacklistRow,
   SafelistRow,
   SimpleBanRuleRow,
@@ -91,7 +92,12 @@ export const Relays = {
   list:        (s?: Sig) => request<RelayConfigRow[]>('/relay', { signal: s }),
   put:         (relays: RelayConfigRow[]) =>
                  request<void>('/relay', { method: 'PUT', json: { relays } }),
-  status:      (s?: Sig) => request<{ relays: RelayStatus[] }>('/relay-status', { signal: s }),
+  status:      (s?: Sig) =>
+                 request<{ relays: RelayStatus[]; suspended: SuspendedRelay[] }>('/relay-status', { signal: s }),
+  /** 上流を期限付きで切り離す (Issue #33)。期限が来ると自動復帰する */
+  suspend:     (url: string, duration_secs: number) =>
+                 request<{ url: string; until: string }>('/relay/suspend', { json: { url, duration_secs } }),
+  resume:      (url: string) => request<{ url: string }>('/relay/resume', { json: { url } }),
   fetchNip11:  (url: string, s?: Sig) =>
                  request<unknown>(`/relay-nip11?url=${encodeURIComponent(url)}`, { signal: s }),
 };
