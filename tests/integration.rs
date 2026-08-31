@@ -467,3 +467,76 @@ async fn investigate_api_validates_and_reports_no_relay() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
+
+#[tokio::test]
+async fn relay_suspend_resume_lifecycle() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin").await.unwrap();
+    for url in ["wss://a.example", "wss://b.example"] {
+        sqlx::query("INSERT INTO relay_config (url, enabled) VALUES (?, 1)")
+            .bind(url)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let app = setup_api_router(&pool).await;
+    let auth_header = basic_header("admin", "admin");
+
+    let post = |uri: &'static str, body: serde_json::Value| {
+        let app = app.clone();
+        let auth_header = auth_header.clone();
+        async move {
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(uri)
+                        .header("authorization", auth_header)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            resp.status()
+        }
+    };
+
+    // 一時停止 → enabled=0 かつ disabled_until が入る
+    assert_eq!(
+        post("/relay/suspend", serde_json::json!({ "url": "wss://a.example", "duration_secs": 600 })).await,
+        StatusCode::OK
+    );
+    let row: (i64, Option<String>) =
+        sqlx::query_as("SELECT enabled, disabled_until FROM relay_config WHERE url = 'wss://a.example'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, 0);
+    assert!(row.1.is_some(), "disabled_until must be set");
+
+    // 残り 1 本になったので、それ以上は止めさせない
+    assert_eq!(
+        post("/relay/suspend", serde_json::json!({ "url": "wss://b.example" })).await,
+        StatusCode::CONFLICT
+    );
+
+    // 存在しない URL は 404
+    assert_eq!(
+        post("/relay/suspend", serde_json::json!({ "url": "wss://nope.example" })).await,
+        StatusCode::NOT_FOUND
+    );
+
+    // 復帰 → enabled=1 かつ disabled_until が NULL に戻る
+    assert_eq!(
+        post("/relay/resume", serde_json::json!({ "url": "wss://a.example" })).await,
+        StatusCode::OK
+    );
+    let row: (i64, Option<String>) =
+        sqlx::query_as("SELECT enabled, disabled_until FROM relay_config WHERE url = 'wss://a.example'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, 1);
+    assert!(row.1.is_none(), "disabled_until must be cleared");
+}

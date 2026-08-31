@@ -56,7 +56,9 @@ Aggregated status used by the LP. 1-second cache. **Never includes npubs or IPs.
 
 - `GET    /api/relay`         List backend relays (`url`, `enabled`, `role`, `weight`, `read_enabled`, `write_enabled`)
 - `PUT    /api/relay`         Bulk update (`{ relays: [...] }`)
-- `GET    /api/relay-status`  Live state of every relay (connected / last error / connected_since)
+- `GET    /api/relay-status`  Live state of every relay (connected / last error / connected_since) + `suspended: [{url, until}]`
+- `POST   /api/relay/suspend`  Detach an upstream for a bounded time (`{url, duration_secs?}`, default 1h, auto-restored, spec §5.17)
+- `POST   /api/relay/resume`   Restore a suspended upstream immediately (`{url}`)
 - `GET    /api/relay-nip11?url=...`  Probe NIP-11 of a remote URL
 - `GET    /api/relay-info`    Own NIP-11
 - `PUT    /api/relay-info`    Update own NIP-11

@@ -54,7 +54,9 @@ LP に表示する集計ステータス。1 秒キャッシュ。`npub` / `IP` �
 
 - `GET    /api/relay`         バックエンドリレー一覧（`url`, `enabled`, `role`, `weight`, `read_enabled`, `write_enabled`）
 - `PUT    /api/relay`         一括更新（`{ relays: [...] }`）
-- `GET    /api/relay-status`  各リレーのライブ状態（接続中・最終エラー・接続開始時刻）
+- `GET    /api/relay-status`  各リレーのライブ状態（接続中・最終エラー・接続開始時刻）+ `suspended: [{url, until}]`
+- `POST   /api/relay/suspend`  上流を期限付きで切り離す（`{url, duration_secs?}` 既定 1 時間。期限で自動復帰、spec §5.17）
+- `POST   /api/relay/resume`   一時停止中の上流を即時復帰（`{url}`）
 - `GET    /api/relay-nip11?url=...`  指定 URL の NIP-11 を probe して返す
 - `GET    /api/relay-info`    自リレー NIP-11
 - `PUT    /api/relay-info`    自リレー NIP-11 更新

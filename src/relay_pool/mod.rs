@@ -48,9 +48,48 @@ impl RelayPool {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
         loop {
             interval.tick().await;
+            // 期限切れの一時停止を先に戻してから同期する（Issue #33）
+            self.restore_expired_suspensions().await;
             if let Err(e) = self.sync_from_db().await {
                 tracing::warn!(error = %e, "RelayPool sync_from_db error");
             }
+        }
+    }
+
+    /// 一時停止の期限が切れたリレーを自動復帰させる。
+    /// `disabled_until` が NULL のものは「手動で無効化」なので触らない。
+    async fn restore_expired_suspensions(&self) {
+        let restored: Vec<(String,)> = sqlx::query_as(
+            "SELECT url FROM relay_config \
+             WHERE enabled = 0 AND disabled_until IS NOT NULL \
+               AND datetime(disabled_until) <= datetime('now')",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .unwrap_or_default();
+        if restored.is_empty() {
+            return;
+        }
+        let _ = sqlx::query(
+            "UPDATE relay_config SET enabled = 1, disabled_until = NULL, updated_at = datetime('now') \
+             WHERE enabled = 0 AND disabled_until IS NOT NULL \
+               AND datetime(disabled_until) <= datetime('now')",
+        )
+        .execute(&self.pool)
+        .await;
+        for (url,) in restored {
+            tracing::info!(url = %url, "relay suspension expired; restored");
+            let pool = self.pool.clone();
+            tokio::spawn(async move {
+                let _ = sqlx::query(
+                    "INSERT INTO relay_event_logs (relay_url, event_type, detail) VALUES (?, ?, ?)",
+                )
+                .bind(&url)
+                .bind("restored")
+                .bind("suspension expired")
+                .execute(&pool)
+                .await;
+            });
         }
     }
 
