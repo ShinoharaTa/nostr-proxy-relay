@@ -440,6 +440,109 @@ UI 側の観測：
 
 ---
 
+## 14. Phase 3: アクター中心ワークフロー刷新（2026-08 合意）
+
+Phase 2 で視認性・レスポンシブは完成した。Phase 3 は **IA を「エンティティ CRUD」から
+「ワークフロー起点」へ再編**する。動機となった痛点:
+
+- 発見（Dashboard / Logs / Live）と制裁（IP ACL / Npub / Quarantine）が別ページで、
+  npub / IP を目視コピーして画面を渡り歩く必要がある
+- 「アクセス元が多い順」を出す集約 API が存在しない（`/api/stats` の top は拒否数ベース全期間のみ）
+- `DataList` にソート・フィルタ機能がない
+
+ビジョン「判断は人間、ツールは速さに全振り」に照らし、磨くのは
+**「見つける → 1 クリックで制裁」の動線**。テーマ・5 グループ構成・URL マップは変更しない。
+
+### 14.1 柱 1: グローバル・アクターインスペクタ
+
+どの画面でも npub / IP の表示をクリック → 右 Drawer で「そのアクターのすべて」を表示する。
+
+```
+┌─ ACTOR: 203.0.113.5 (ip) ────────────────┐
+│ 状態バッジ: [SHADOW BAN] [接続中 3]        │
+│ 統計: 接続 142 / EVENT 3,210 / 拒否 890    │
+│       初見 08-12 / 最終 いま               │
+│ 直近の拒否ログ 5 件（reason / kind / 時刻） │
+│ ───────────────────────────────          │
+│ アクション（確認モーダル必須は §7.4 準拠）:  │
+│  ip:   HARD BAN / SHADOW / WHITELIST /     │
+│        DISCONNECT                          │
+│  npub: BAN / QUARANTINE(期間プリセット) /   │
+│        SAFELIST 追加 / BROADCAST 付与       │
+└──────────────────────────────────────────┘
+```
+
+- コンポーネント: `ActorInspector`（`Drawer` ベース、`actor: { type: 'ip'|'npub', id }` を受ける）
+- 起動点: Dashboard の top リスト / Live Events の行 / Logs の行 / IP ACL / Npub 一覧。
+  npub / IP を描画する共通コンポーネント `ActorLink` を新設し、既存の `<code>` 直書きを置換する
+- 実行済みアクションは即座に状態バッジへ反映（インスペクタ内で reload）
+- モバイルでは全画面 Drawer（§6.3 のカード変換と同じブレークポイント）
+
+### 14.2 柱 2: 集約 API + ソート / フィルタ
+
+#### 新 API
+
+```
+GET /api/stats/actors?by=ip|npub&window=1h|24h|7d|all&sort=connections|events|rejections&limit=50
+```
+
+- `by=ip`: connection_logs を GROUP BY ip_address。返す列:
+  `ip, connections, events, rejected, last_seen, mode(ip_access_control JOIN), active_connections`
+- `by=npub`: event_rejection_logs を GROUP BY npub（受理数は未記録のため当面 拒否ベース）。返す列:
+  `npub, rejections, kinds(top3), last_seen, status(safelist/banned/quarantine JOIN)`
+- **状態 JOIN が本質**: 一覧の時点で「もう対処済みか」が見える
+
+```
+GET /api/actors/:type/:id
+```
+
+- インスペクタ用の単一アクター詳細（上記 1 行分 + 直近拒否ログ 5 件 + 現在の ACL / safelist /
+  quarantine エントリ）
+
+#### DataList 拡張
+
+- ヘッダクリックで昇順/降順ソート（`Column.sortValue?: (row) => number|string` を追加。
+  指定した列だけソート可能）
+- 任意のフィルタバー（`filter?: { placeholder, match: (row, q) => boolean }`）。
+  クライアントサイドで十分（一覧は limit 500 以下）
+
+### 14.3 柱 3: ページへの組み込み（IA は維持）
+
+| ページ | 追加するもの |
+|---|---|
+| IP ACL | 上部に「TOP SOURCES」ペイン（`/api/stats/actors?by=ip` window 切替付き）。行から直接 BAN / インスペクタ |
+| Npub | 上部に「TOP REJECTED」ペイン（by=npub）。行から SAFELIST / BAN / インスペクタ |
+| Logs | 「時系列 / IP 集約」の表示トグル |
+| Dashboard | 既存 top リストの各行を `ActorLink` 化（インスペクタ起動）|
+| Live Events | 行の npub / IP を `ActorLink` 化 |
+
+### 14.4 制約（明示）
+
+- npub の**受理**イベント数は未記録（event_counters は kind 単位）。npub 集約は拒否数 + 状態のみ。
+  受理数が欲しくなったら `event_counters` の npub 次元追加を別途判断（ストレージ増と要相談）
+- `active_connections` は SessionRegistry から取得（ip のみ。npub と接続の対応は保持していない）
+
+### 14.5 決定事項（2026-08 選定）
+
+- レイアウトは**案B (Command Center)**、テーマ×レイアウトは **B-2「GOD'S EYE」**
+  （オレンジ #ff8c2a × ティール #2ad4c8 / 暖色ブラック、クアドラント構成。mock-layouts/b2-godseye.html）
+- 方向性: トランスフォーマー / ワイルド・スピード系の「情報戦 FUI」
+  （レティクル四隅・トラッキングバンド・カメラフィード風 LIVE・円形ダイヤル・ティッカー）
+- パレット切替は **console のみ**（tokens.css の --crt-* を全置換。LP / docs は独自パレットで当面現状維持）
+- 新設 **DECK ページ**（`/console/` のホーム）にクアドラントを実装。既存 Dashboard は `/dashboard` へ移動し
+  ページ自体は温存。既存のグループ式 SideNav も維持（B-2 モックのヘックスアイコンレール化は追って判断）
+- DECK 構成: TRACKING バンド（SOURCES / FLAGGED / EVT/MIN / GUARD）→
+  LIVE INTERCEPT（SSE）/ TARGET STACK（actors API + BAN/SHADOW/QUARANTINE 即時アクション）/
+  SYSTEM DIALS（accept rate / reject ratio）/ ATTENTION QUEUE（auto_guard 発火 P1 + 未対処レート P2）→ ティッカー
+
+### 14.6 実装フェーズ
+
+1. **P3-1** 集約 API（/api/stats/actors, /api/actors/:type/:id）+ DataList ソート/フィルタ  `1.0d`
+2. **P3-2** ActorInspector + ActorLink + 各画面のクリッカブル化  `1.5d`
+3. **P3-3** IP ACL / Npub の TOP ペイン、Logs の集約トグル  `1.0d`
+
+---
+
 ## 関連ドキュメント
 
 - [CRT_OPS テーマ仕様書](ui_theme_ja) — 色・タイポ・装飾・コンポーネントトークン

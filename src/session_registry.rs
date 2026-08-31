@@ -65,6 +65,15 @@ impl SessionRegistry {
         count
     }
 
+    /// IP ごとのアクティブ接続数（actors 集約 API 用）。
+    pub fn active_counts(&self) -> std::collections::HashMap<String, usize> {
+        self.by_ip
+            .iter()
+            .filter(|e| !e.value().is_empty())
+            .map(|e| (e.key().clone(), e.value().len()))
+            .collect()
+    }
+
     /// CIDR / 単一 IP マッチで強制切断。`matcher` に true を返した IP の接続を切る。
     pub async fn force_disconnect_where<F>(&self, matcher: F) -> usize
     where

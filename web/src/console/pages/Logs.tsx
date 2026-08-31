@@ -107,7 +107,12 @@ function ConnectionTab() {
     { key: 'connected', label: 'CONNECTED',  render: (r) => <code>{shortDateTime(r.connected_at)}</code>, width: 130 },
     { key: 'ip',        label: 'IP',         render: (r) => <code>{r.ip_address}</code>, width: 150 },
     { key: 'duration',  label: 'DURATION',   render: (r) => durationBetween(r.connected_at, r.disconnected_at), width: 110, hideOnMobile: true },
-    { key: 'events',    label: 'EVENTS',     render: (r) => `${r.event_count.toLocaleString()} / ${r.rejected_event_count.toLocaleString()} rej`, width: 150, hideOnMobile: true },
+    { key: 'events',    label: 'EVENTS',     sortValue: (r) => r.event_count,
+      render: (r) => `${r.event_count.toLocaleString()} / ${r.rejected_event_count.toLocaleString()} rej`, width: 150, hideOnMobile: true },
+    { key: 'rejected',  label: 'REJ',        sortValue: (r) => r.rejected_event_count,
+      render: (r) => r.rejected_event_count > 0
+        ? <span style={{ color: 'var(--crt-danger-text)' }}>{r.rejected_event_count.toLocaleString()}</span>
+        : '0', width: 70, hideOnMobile: true },
     { key: 'status',    label: 'STATUS',     render: (r) => r.disconnected_at ? <Tag variant="dim">CLOSED</Tag> : <Tag variant="info">OPEN</Tag>, width: 90 },
   ];
 

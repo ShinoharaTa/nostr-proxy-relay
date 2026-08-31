@@ -61,8 +61,8 @@ LP に表示する集計ステータス。1 秒キャッシュ。`npub` / `IP` �
 
 ### Access Control
 
-- `GET    /api/post-policy`               POST ポリシー (allowlist / denylist) と backend_strategy
-- `PUT    /api/post-policy`               同上を更新（**変更時はフロントで確認モーダル必須**）
+- `GET    /api/post-policy`               POST ポリシー (allowlist / denylist)・backend_strategy・write_routing
+- `PUT    /api/post-policy`               同上を更新（**変更時はフロントで確認モーダル必須**）。`write_routing`: `all` / `primary_default`（spec §5.15）
 - `GET    /api/safelist`                  npub 一覧
 - `POST   /api/safelist`                  upsert（`{ npub, flags, memo }`）
 - `DELETE /api/safelist/:npub`
@@ -94,6 +94,11 @@ LP に表示する集計ステータス。1 秒キャッシュ。`npub` / `IP` �
 - `POST   /api/translate/simple-to-dsl`   Quick BAN → DSL 変換プレビュー
 - `POST   /api/translate/dsl-to-simple`   DSL → Quick BAN への戻し（可能なら）
 - `POST   /api/translate/dry-run`         DSL を 1 イベントに当てて結果を返す
+- `GET    /api/auto-guard`                自動ガード設定 + アクティブな content mute（spec §5.14）
+- `PUT    /api/auto-guard`                自動ガード設定を更新（`{ enabled, burst_window_secs, burst_max_events, exclude_kinds, duplicate_threshold, duplicate_window_secs, quarantine_secs }`）
+- `DELETE /api/auto-guard/content-mutes`  content mute を全クリア（誤検知時の緊急解除）
+- `GET    /api/stats/actors?by=ip|npub&window=1h|24h|7d|all&sort=...&limit=`  アクター集約（多い順 + 対処状態 JOIN、ui_redesign §14.2）
+- `GET    /api/actors/:type/:id`          アクターインスペクタ用詳細（type: `ip` / `npub`）
 
 ### Operations
 

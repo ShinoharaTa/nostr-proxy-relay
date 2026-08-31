@@ -13,10 +13,10 @@ interface Props {
   onMenu?: () => void;
 }
 
-/** PROFILER (WD1 ctOS) Topbar
+/** GOD'S EYE Topbar
  *  - スカル・グリッチ・ステンシルは無し
- *  - "{>>} Profiler" 1 行のみ。HUD タグは犯罪分析報告風に控えめに */
-export function Topbar({ title = 'Profiler', liveLabel = 'Online', right, onMenu }: Props) {
+ *  - "{>>} God's Eye" 1 行のみ。HUD タグは犯罪分析報告風に控えめに */
+export function Topbar({ title = "God's Eye", liveLabel = 'Online', right, onMenu }: Props) {
   const { lang, setLang } = useI18n();
   return (
     <header className="crt-shell__top crt-topbar">

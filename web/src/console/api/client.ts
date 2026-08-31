@@ -6,13 +6,20 @@
 
 import { notifyApiUnreachable } from '../shell/OfflineBar';
 import type {
+  ActorWindow,
   AppVersionResponse,
+  AutoGuardResponse,
+  IpActorDetail,
+  IpActorRow,
+  NpubActorDetail,
+  NpubActorRow,
   ConnectionLogRow,
   DryRunResult,
   EventRejectionLogRow,
   FilterRow,
   IpAccessControlRow,
   PostPolicyResponse,
+  PutAutoGuardBody,
   QuarantineRow,
   RelayConfigRow,
   RelayEventLogRow,
@@ -184,8 +191,31 @@ export const Quarantine = {
 /** ──────── POST Policy ──────── */
 export const PostPolicy = {
   get: (s?: Sig) => request<PostPolicyResponse>('/post-policy', { signal: s }),
-  put: (body: { policy: string; backend_strategy?: string }) =>
+  put: (body: { policy: string; backend_strategy?: string; write_routing?: string }) =>
          request<PostPolicyResponse>('/post-policy', { method: 'PUT', json: body }),
+};
+
+/** ──────── Actors (ui_redesign §14.2) ──────── */
+export const Actors = {
+  topIps: (window: ActorWindow, sort: 'connections' | 'events' | 'rejections' = 'connections', s?: Sig) =>
+    request<{ actors: IpActorRow[] }>(`/stats/actors?by=ip&window=${window}&sort=${sort}`, { signal: s })
+      .then((r) => r.actors),
+  topNpubs: (window: ActorWindow, s?: Sig) =>
+    request<{ actors: NpubActorRow[] }>(`/stats/actors?by=npub&window=${window}`, { signal: s })
+      .then((r) => r.actors),
+  ipDetail: (ip: string, s?: Sig) =>
+    request<IpActorDetail>(`/actors/ip/${encodeURIComponent(ip)}`, { signal: s }),
+  npubDetail: (npub: string, s?: Sig) =>
+    request<NpubActorDetail>(`/actors/npub/${encodeURIComponent(npub)}`, { signal: s }),
+};
+
+/** ──────── Auto Guard (spec §5.14) ──────── */
+export const AutoGuard = {
+  get: (s?: Sig) => request<AutoGuardResponse>('/auto-guard', { signal: s }),
+  put: (body: PutAutoGuardBody) =>
+         request<AutoGuardResponse>('/auto-guard', { method: 'PUT', json: body }),
+  clearContentMutes: () =>
+         request<{ cleared: number }>('/auto-guard/content-mutes', { method: 'DELETE' }),
 };
 
 /** ──────── Translate / Dry-Run ──────── */

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Modal, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Modal, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { SimpleBan, Translate } from '../api';
 import type { SimpleBanRuleRow } from '../api';
@@ -14,6 +14,7 @@ const RULE_TYPES = [
 export function QuickBanPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<SimpleBanRuleRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<SimpleBanRuleRow | null>(null);
@@ -23,7 +24,7 @@ export function QuickBanPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm(t.common.confirmDelete)) return;
+    if (!(await confirm({ ...t.common.confirmDelete, destructive: true }))) return;
     try { await SimpleBan.remove(id); toast.push({ variant: 'ok', message: t.common.deleted }); reload(); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };

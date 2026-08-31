@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Modal, StatusDot, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Modal, StatusDot, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Relays } from '../api';
 import type { RelayConfigRow, RelayStatus } from '../api';
@@ -12,6 +12,7 @@ type DraftRow = RelayConfigRow & { dirty?: boolean };
 export function BackendRelays() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<DraftRow[] | null>(null);
   const status = usePolling((s) => Relays.status(s), 5000);
   const statusMap = useMemo(() => {
@@ -31,8 +32,8 @@ export function BackendRelays() {
     setRows((prev) => prev?.map((r) => r.url === url ? { ...r, ...patch, dirty: true } : r) ?? prev);
   };
 
-  const onRemove = (url: string) => {
-    if (!confirm(t.backend.confirmDelete(url))) return;
+  const onRemove = async (url: string) => {
+    if (!(await confirm({ ...t.backend.confirmDelete(url), destructive: true }))) return;
     setRows((prev) => prev?.filter((r) => r.url !== url).map((r) => ({ ...r, dirty: true })) ?? prev);
   };
 

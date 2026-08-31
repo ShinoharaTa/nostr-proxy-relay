@@ -126,6 +126,80 @@ UI 改修最小で動かせて、見た目の効果が大きい層。
 
 ---
 
+## フェーズ D：自動ガードと書き込みルーティング（2026-08 合意）
+
+仕様は [`docs/specification_ja.md`](docs/specification_ja.md) §5.14 / §5.15。
+意思決定済み事項：
+
+- ガードのアクションは**時限 Quarantine の自動発行のみ**（恒久制裁はしない、既定 OFF の opt-in）
+- 検知対象は**バースト投稿レート**と**複数接続からの同一イベント**の 2 種
+- ルーティングの broadcast 許可は **safelist に新フラグ（flags & 8）** で判定
+- 配送は**ベストエフォート**（primary 送信失敗でも OK false 化しない）
+- **kind によるルーティング例外はしない**。送信先はリレー設定のみで決定（spec §5.15 決定事項）
+- 推奨トポロジー: 自リレー = primary（read+write）、外部リレー = secondary（read のみ）、
+  自分の投稿の外部配置はクライアント側 Outbox（NIP-65）に任せる
+- 確定 Bot 用のハード上限ティアは**追加しない**。既存バースト検知の閾値設定（例: 60 秒 / 200 件）で対応し、
+  除外 kind の扱いもソフト検知と共通
+
+### D-1. 書き込みルーティング（broadcast npub / primary 限定）  `1.5d`
+- `relay_settings.write_routing`（'all' / 'primary_default'）を追加
+- `backend_txs` を `BackendHandle { tx, url, role, read_enabled, write_enabled }` に拡張
+- EVENT は routing 判定先へ、REQ/CLOSE は `read_enabled` のみへ送信
+- primary write 先ゼロ時は全 write_enabled へ fail-open + warn
+- Npub 画面に broadcast トグル、Backend Relays 画面に write_routing トグル
+- 詳細：spec §5.15
+
+### D-2. 自動ガード: バースト投稿レート  `1.5d`
+- 参考実装: [kojira/strfry-ratelimit](https://github.com/kojira/strfry-ratelimit)
+- `relay_settings` に auto_guard 系 7 列を追加（spec §5.14）
+- グローバル pubkey 単位の sliding window（既定 60 秒窓 30 件）。ephemeral / replaceable / 除外 kind はカウント対象外
+- 発火時: scope `post`・reason `auto_guard:burst` の時限 Quarantine 自動発行
+- 除外: IP whitelist / safelist（post_allowed・filter_bypass・broadcast）
+- LiveEventBus + event_rejection_logs へ記録
+- `GET / PUT /api/auto-guard`、コンソール FILTERING に「Auto Guard」ページ
+
+### D-3. 自動ガード: 複数接続からの同一イベント  `1.0d`
+- content SHA-256 のグローバル LRU で異接続からの同一内容 POST を検知
+- 発火時: 投稿元 npub へ時限 Quarantine + content mute（メモリ内 TTL、npub 不問で drop）
+- `DELETE /api/auto-guard/content-mutes`（誤検知時の緊急解除）
+- Quarantine 画面で `auto_guard:` エントリにバッジ表示
+
+---
+
+## フェーズ E：コンソール UI のアクター中心ワークフロー刷新（2026-08 合意）
+
+仕様は [`docs/ui_redesign_ja.md`](docs/ui_redesign_ja.md) §14。IA・テーマは維持し、
+「見つける → 1 クリックで制裁」の動線を作る。
+
+### E-1. 集約 API + DataList ソート/フィルタ  `1.0d`
+- `GET /api/stats/actors`（ip / npub 集約、BAN・quarantine 状態 JOIN、window 切替）
+- `GET /api/actors/:type/:id`（インスペクタ用詳細）
+- `DataList` にヘッダソートとフィルタバー
+
+### E-2. グローバル・アクターインスペクタ  `1.5d`
+- `ActorInspector` Drawer + `ActorLink` 共通コンポーネント
+- Dashboard / Live / Logs / IP ACL / Npub から起動、全アクションを集約
+
+### E-3. ページ組み込み  `1.0d`
+- IP ACL「TOP SOURCES」/ Npub「TOP REJECTED」ペイン、Logs の集約トグル
+
+---
+
+## フェーズ F：整理バックログ（2026-08 棚卸し。以後は GitHub Issue で管理）
+
+このフェーズ以降、作業単位は **Issue 起票 → ブランチ → PR** で運用する。
+
+- F-1. `eose_autoclose_kinds` の API / UI 編集（A-0 合意「DB + UI でも編集可能」の未達分）
+- F-2. bind アドレスの env 化（`BIND_ADDR`、既定 `127.0.0.1:8080` 維持）
+- F-3. lint 全解消（eslint 26 件 + clippy）+ `Cargo.lock` コミット + CI に lint ゲート追加
+- F-4. C-1 再掲: ws_proxy を RelayPool 経由に一本化（バックエンド接続数の削減）
+- F-5. npub 単位の受理イベント数記録（TOP REJECTED を受理数でも並べ替え可能に）
+- F-6. 英語ドキュメントスタブの完成（nip11-comparison / nip11-recommendations）
+- F-7. リリース運用（バージョンタグ付与、CHANGELOG）
+- F-8.（任意）DECK のヘックスアイコンレール化 / docs/grafana ダッシュボード JSON
+
+---
+
 ## 並走で進めるテスト整備
 
 - `tests/integration.rs` を擬似 backend WS で拡張
@@ -147,7 +221,7 @@ UI 改修最小で動かせて、見た目の効果が大きい層。
 
 ## やらないこと（再掲）
 
-- 自動 BAN（行動ベースの自動制裁）
+- 恒久的な自動 BAN（自動ガードは時限 Quarantine のみ発行し、恒久制裁は人間が判断する。フェーズ D 参照）
 - NIP-13 PoW 強制
 - First-seen による新規ユーザー強制締め出し
 - NIP-42 を必須にした READ 制限

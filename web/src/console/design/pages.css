@@ -76,7 +76,7 @@
 }
 .crt-app .radio-card--active {
   border-color: var(--crt-accent);
-  background: rgba(196, 209, 64, 0.04);
+  background: rgba(255, 140, 42, 0.04);
 }
 
 /* preset duration row (Quarantine) */

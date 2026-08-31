@@ -1,0 +1,94 @@
+/* ══ DECK (Command Center) — GOD'S EYE FUI ══
+   mock-layouts/b2-godseye.html で選定されたクアドラント構成。
+   docs/ui_redesign_ja.md §14 (Phase 3 / 案B) */
+
+.deck { display: grid; gap: 10px; }
+
+/* ─ トラッキングバンド ─ */
+.deck-band {
+  border: 1px solid var(--crt-border-strong);
+  background:
+    linear-gradient(rgba(21, 13, 5, 0.88), rgba(21, 13, 5, 0.88)),
+    repeating-radial-gradient(circle at 78% 160%, transparent 0 38px, rgba(42, 212, 200, 0.10) 39px 40px),
+    repeating-linear-gradient(64deg, transparent 0 44px, rgba(42, 212, 200, 0.07) 45px 46px);
+  display: flex; align-items: center; gap: 22px; padding: 10px 18px; flex-wrap: wrap;
+}
+.deck-band__title { font-size: 20px; color: var(--crt-accent); letter-spacing: 3px; text-shadow: var(--crt-text-glow); }
+.deck-band__title small { display: block; font-size: 9px; color: var(--crt-fg-dim); letter-spacing: 3px; }
+.deck-stat b { display: block; color: var(--crt-fg-dim); font-size: 9px; letter-spacing: 2px; font-weight: 400; }
+.deck-stat span { font-size: 18px; font-variant-numeric: tabular-nums; font-family: var(--crt-font-mono); }
+.deck-band__scan { margin-left: auto; color: var(--crt-info); font-size: 11px; letter-spacing: 2px; animation: deck-pulse 2s infinite; }
+@keyframes deck-pulse { 50% { opacity: 0.4; } }
+
+/* ─ クアドラント ─ */
+.deck-quad { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+@media (max-width: 1100px) { .deck-quad { grid-template-columns: 1fr; } }
+
+/* ─ LIVE INTERCEPT (カメラフィード風) ─ */
+.deck-cam { max-height: 320px; overflow: auto; }
+.deck-cam__ev {
+  padding: 4px 12px; border-bottom: 1px solid rgba(58, 42, 22, 0.6);
+  font-size: 11px; color: var(--crt-fg-muted); font-family: var(--crt-font-mono);
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.deck-cam__ev--rej { color: var(--crt-danger-text); }
+.deck-rec { color: var(--crt-danger-text); animation: deck-pulse 1.2s infinite; }
+
+/* ─ ターゲットカード (レティクル四隅) ─ */
+.deck-stack { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; padding: 10px; }
+.deck-tcard {
+  border: 1px solid var(--crt-border-strong); padding: 10px 12px; position: relative;
+  background: rgba(255, 140, 42, 0.03);
+}
+.deck-tcard__c { position: absolute; width: 10px; height: 10px; pointer-events: none; }
+.deck-tcard__c--tl { top: -1px; left: -1px; border-top: 2px solid var(--crt-accent); border-left: 2px solid var(--crt-accent); }
+.deck-tcard__c--tr { top: -1px; right: -1px; border-top: 2px solid var(--crt-accent); border-right: 2px solid var(--crt-accent); }
+.deck-tcard__c--bl { bottom: -1px; left: -1px; border-bottom: 2px solid var(--crt-accent); border-left: 2px solid var(--crt-accent); }
+.deck-tcard__c--br { bottom: -1px; right: -1px; border-bottom: 2px solid var(--crt-accent); border-right: 2px solid var(--crt-accent); }
+.deck-tcard--hot { border-color: var(--crt-danger); background: rgba(255, 59, 48, 0.06); }
+.deck-tcard--hot .deck-tcard__c { border-color: var(--crt-danger); }
+.deck-tcard__id { font-size: 13px; font-family: var(--crt-font-mono); margin-bottom: 2px; padding-right: 56px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--crt-info); }
+.deck-tcard__meta { color: var(--crt-fg-dim); font-size: 10px; letter-spacing: 1px; margin-bottom: 8px; }
+.deck-tcard__pct { position: absolute; top: 8px; right: 10px; font-size: 18px; color: var(--crt-danger-text);
+  font-variant-numeric: tabular-nums; font-family: var(--crt-font-numeric); text-align: right; }
+.deck-tcard__pct small { font-size: 9px; color: var(--crt-fg-dim); display: block; font-family: var(--crt-font-mono); }
+.deck-tcard__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ─ SYSTEM DIALS ─ */
+.deck-dials { display: flex; gap: 18px; padding: 14px; align-items: center; flex-wrap: wrap; }
+.deck-ring { width: 92px; height: 92px; border-radius: 50%; flex: none; position: relative; }
+.deck-ring::after {
+  content: attr(data-v); position: absolute; inset: 9px; border-radius: 50%;
+  background: var(--crt-bg-card); display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-family: var(--crt-font-numeric);
+}
+.deck-ring__label { color: var(--crt-fg-dim); font-size: 10px; letter-spacing: 2px; line-height: 1.5; }
+
+/* ─ ATTENTION QUEUE ─ */
+.deck-queue__item { border-bottom: 1px solid var(--crt-border); padding: 9px 12px; position: relative; }
+.deck-queue__item--p1 { border-left: 3px solid var(--crt-danger); }
+.deck-queue__item--p2 { border-left: 3px solid var(--crt-warn); }
+.deck-queue__item--p3 { border-left: 3px solid var(--crt-border-strong); }
+.deck-queue__who { color: var(--crt-fg); font-family: var(--crt-font-mono); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-queue__why { color: var(--crt-fg-dim); font-size: 11px; margin: 3px 0 7px; }
+.deck-queue__prio { position: absolute; top: 9px; right: 10px; font-size: 9px; letter-spacing: 2px; color: var(--crt-fg-dim); }
+.deck-queue__item--p1 .deck-queue__prio { color: var(--crt-danger-text); }
+.deck-queue__item--p2 .deck-queue__prio { color: var(--crt-warn); }
+
+/* ─ ティッカー ─ */
+.deck-ticker { border: 1px solid var(--crt-border-strong); background: var(--crt-bg-soft);
+  height: 30px; overflow: hidden; position: relative; }
+.deck-ticker > div {
+  position: absolute; white-space: nowrap; line-height: 28px; font-size: 11px;
+  color: var(--crt-fg-muted); letter-spacing: 1px; font-family: var(--crt-font-mono);
+  animation: deck-tick 28s linear infinite;
+}
+@keyframes deck-tick { from { transform: translateX(100vw); } to { transform: translateX(-100%); } }
+.deck-ticker b { color: var(--crt-accent); font-weight: 400; }
+.deck-ticker i { color: var(--crt-info); font-style: normal; }
+@media (prefers-reduced-motion: reduce) {
+  .deck-band__scan, .deck-rec { animation: none; }
+  .deck-ticker > div { animation: none; position: static; }
+}

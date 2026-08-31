@@ -127,6 +127,11 @@ jobs:
           npm ci
           npm run build
 
+      # 壊れたビルドを crates.io に publish しないためのゲート。
+      # web/dist を生成した後に走らせる（build.rs がフロント成果物を同梱するため）。
+      - name: Test
+        run: cargo test --all-targets
+
       - name: Publish to crates.io
         run: cargo publish --token ${CRATES_TOKEN} --allow-dirty
         env:

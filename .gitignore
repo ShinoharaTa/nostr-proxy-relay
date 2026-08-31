@@ -38,6 +38,9 @@ web/node_modules/
 !web/dist/
 !web/dist/**
 
+# UI キャプチャ出力 (web/scripts/screenshot-console.mjs)
+screenshots/
+
 # Temporary files
 *.tmp
 *.bak

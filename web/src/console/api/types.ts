@@ -134,10 +134,99 @@ export interface QuarantineRow {
 
 export type PostPolicyValue = 'allowlist' | 'denylist';
 export type BackendStrategy = 'failover' | 'fan_out_event' | 'fan_in_req' | 'sharded';
+export type WriteRouting = 'all' | 'primary_default';
 
 export interface PostPolicyResponse {
   policy: PostPolicyValue;
   backend_strategy: BackendStrategy;
+  write_routing: WriteRouting;
+}
+
+/** アクター集約 (ui_redesign §14.2) — `/api/stats/actors` */
+export type ActorWindow = '1h' | '24h' | '7d' | 'all';
+
+export interface IpActorRow {
+  ip: string;
+  connections: number;
+  events: number;
+  rejections: number;
+  last_seen: string;
+  mode: IpAclMode;
+  active_connections: number;
+}
+
+export interface NpubActorRow {
+  npub: string;
+  rejections: number;
+  kinds: string;
+  last_seen: string;
+  safelist_flags: number | null;
+  banned: boolean;
+  quarantined: boolean;
+}
+
+export interface ActorRecentRejection {
+  event_id: string;
+  npub: string;
+  ip_address: string | null;
+  kind: number;
+  reason: string;
+  created_at: string;
+}
+
+export interface IpActorDetail {
+  type: 'ip';
+  id: string;
+  mode: IpAclMode;
+  active_connections: number;
+  connections: number;
+  events: number;
+  rejections: number;
+  first_seen: string | null;
+  last_seen: string | null;
+  recent_rejections: ActorRecentRejection[];
+  acl_entries: { id: number; ip_address: string; mode: string; memo: string }[];
+}
+
+export interface NpubActorDetail {
+  type: 'npub';
+  id: string;
+  rejections: number;
+  first_seen: string | null;
+  last_seen: string | null;
+  recent_rejections: ActorRecentRejection[];
+  safelist: { flags: number; banned: boolean; memo: string } | null;
+  quarantine_entries: { id: number; scope: string; reason: string; expires_at: string | null }[];
+}
+
+/** 自動ガード (spec §5.14) — `/api/auto-guard` */
+export interface AutoGuardMute {
+  content_hash: string;
+  /** unix 秒 */
+  expires_at: number;
+}
+
+export interface AutoGuardResponse {
+  enabled: boolean;
+  burst_window_secs: number;
+  burst_max_events: number;
+  /** CSV (例 "6,7") */
+  exclude_kinds: string;
+  duplicate_threshold: number;
+  duplicate_window_secs: number;
+  quarantine_secs: number;
+  content_mutes: AutoGuardMute[];
+  content_mute_total: number;
+}
+
+export interface PutAutoGuardBody {
+  enabled: boolean;
+  burst_window_secs: number;
+  burst_max_events: number;
+  exclude_kinds: string;
+  duplicate_threshold: number;
+  duplicate_window_secs: number;
+  quarantine_secs: number;
 }
 
 export interface RelayInfoRow {

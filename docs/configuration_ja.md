@@ -77,3 +77,45 @@ server {
     }
 }
 ```
+
+
+---
+
+## 設定の全体マップ（2026-08 棚卸し）
+
+「どこで何を設定できるか」の一覧。**env = 起動時 / DB+UI = コンソールから live 反映**。
+
+### 環境変数（起動時のみ）
+
+| 変数 | 既定 | 用途 |
+|---|---|---|
+| `ADMIN_USER` / `ADMIN_PASS` | — (必須) | 管理コンソール BasicAuth |
+| `DATABASE_URL` | `sqlite:data/app.sqlite` | DB パス |
+| `LOG_DIR` | `logs` | ファイルログ出力先（1h ローテ / 72h 保持） |
+| `LOG_RETENTION_DAYS` | `60` | DB ログ（connection / rejection / relay_event）保持日数 |
+| `RUST_LOG` | `info` | ログレベル |
+| `EOSE_AUTOCLOSE_KINDS` | — | EOSE 後 auto-close する kind（DB 値と union、env 優先） |
+| `ADMIN_LOCKOUT_THRESHOLD` / `_WINDOW_SECS` / `_DURATION_SECS` | 10 / 300 / 900 | ログイン失敗ロックアウト |
+| `INFLUXDB_URL` / `_BUCKET` / `_ORG` / `_TOKEN` | — | テレメトリ出力（任意） |
+| `RELAY_URL` / `GITHUB_URL` | — | LP 表示用 |
+
+### コンソール設定（DB 保存・再起動不要）
+
+| 画面 | 設定項目 |
+|---|---|
+| BACKEND › Relays | URL / enabled / **role** (primary/secondary/observer) / weight / **read・write 可否** |
+| BACKEND › NIP-11 | name, description 等 + limitation（max_message_length ほか — 実効制限） |
+| ACCESS › POST Policy | allowlist / denylist、backend_strategy、**write_routing** (all / primary_default) |
+| ACCESS › Npub | safelist（flags: 1=allow, 2=filter_bypass, **8=broadcast**）、BAN、memo |
+| ACCESS › IP ACL | IP / CIDR、mode（hard_ban / shadow_ban / whitelist）、memo |
+| ACCESS › Quarantine | npub 時限ミュート（scope / 期限 / reason） |
+| FILTERING › Kind Blocklist | kind 単発 / 範囲 |
+| FILTERING › DSL Rules | フィルタクエリ（POST / backend 適用フラグ） |
+| FILTERING › Quick BAN | npub / kind / npub×kind / tag_contains |
+| FILTERING › Auto Guard | 有効化、バースト窓・上限、除外 kind、重複閾値・窓、Quarantine 秒数 |
+
+### 設定できない（ハードコード）もの
+
+- bind アドレス `127.0.0.1:8080`（Issue 管理: env 化予定）
+- `eose_autoclose_kinds` の UI 編集（DB 列はあるが API / UI 未実装 — Issue 管理）
+- WS ping/timeout 間隔（30s / 120s / 90s）、EOSE 集約猶予（1.5s / 10s）、dedupe LRU 1 万件、ファイルログ保持 72h

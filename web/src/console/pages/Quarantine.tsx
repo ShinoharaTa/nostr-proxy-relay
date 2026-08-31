@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Quarantine as QApi } from '../api';
 import type { QuarantineRow, QuarantineScope } from '../api';
@@ -24,6 +24,7 @@ const SCOPES: { id: QuarantineScope; label: string }[] = [
 export function QuarantinePage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<QuarantineRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -31,7 +32,7 @@ export function QuarantinePage() {
   useEffect(() => { reload(); }, []);
 
   const release = async (id: number, npub: string) => {
-    if (!confirm(t.quarantine.confirmRelease(npub))) return;
+    if (!(await confirm(t.quarantine.confirmRelease(npub)))) return;
     try { await QApi.remove(id); toast.push({ variant: 'ok', message: t.quarantine.released }); reload(); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };
@@ -40,7 +41,12 @@ export function QuarantinePage() {
     { key: 'npub',  label: 'NPUB',  render: (r) => <code className="logs-cell-mono">{r.npub}</code> },
     { key: 'scope', label: 'SCOPE', width: 80,
       render: (r) => <Tag variant={r.scope === 'all' ? 'alert' : 'warn'}>{r.scope.toUpperCase()}</Tag> },
-    { key: 'reason', label: 'REASON', render: (r) => r.reason || '—', hideOnMobile: true },
+    { key: 'reason', label: 'REASON', hideOnMobile: true,
+      render: (r) => r.reason.startsWith('auto_guard:')
+        ? <span title={t.quarantine.autoGuardBadge} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <Tag variant="warn">AUTO</Tag>{r.reason}
+          </span>
+        : (r.reason || '—') },
     { key: 'created', label: 'STARTED', render: (r) => <span title={r.created_at}>{ago(r.created_at)}</span>, width: 100 },
     { key: 'expires', label: 'EXPIRES', width: 130,
       render: (r) => r.expires_at

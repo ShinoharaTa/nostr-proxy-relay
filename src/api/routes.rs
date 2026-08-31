@@ -18,6 +18,7 @@ use crate::access::IpAclCache;
 use crate::auth_throttle::AuthThrottle;
 use crate::config::SettingsCache;
 use crate::event_stream::LiveEventBus;
+use crate::guard::AutoGuard;
 use crate::nostr::event::Event as NostrEvent;
 use crate::parser::filter_query;
 use crate::parser::translate;
@@ -33,6 +34,7 @@ pub struct ApiState {
     pub ip_acl: Arc<IpAclCache>,
     pub session_registry: Arc<SessionRegistry>,
     pub event_bus: Arc<LiveEventBus>,
+    pub auto_guard: Arc<AutoGuard>,
 }
 
 pub fn router(state: ApiState, throttle: AuthThrottle) -> Router {
@@ -89,11 +91,14 @@ pub fn router(state: ApiState, throttle: AuthThrottle) -> Router {
             "/post-policy",
             get(get_post_policy).put(put_post_policy),
         )
+        .route("/auto-guard", get(get_auto_guard).put(put_auto_guard))
+        .route("/auto-guard/content-mutes", delete(clear_auto_guard_content_mutes))
         .route("/translate/simple-to-dsl", post(translate_simple_to_dsl))
         .route("/translate/dsl-to-simple", post(translate_dsl_to_simple))
         .route("/translate/dry-run", post(dry_run_filter))
         .route("/events/stream", get(sse_event_stream))
         .merge(super::system::routes())
+        .merge(super::actors::routes())
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
             auth_state,
@@ -1359,6 +1364,7 @@ async fn delete_quarantine(State(s): State<ApiState>, Path(id): Path<i64>) -> Js
 pub struct PostPolicyResponse {
     pub policy: String,
     pub backend_strategy: String,
+    pub write_routing: String,
 }
 
 async fn get_post_policy(State(s): State<ApiState>) -> Json<PostPolicyResponse> {
@@ -1366,6 +1372,7 @@ async fn get_post_policy(State(s): State<ApiState>) -> Json<PostPolicyResponse> 
     Json(PostPolicyResponse {
         policy: snap.post_policy.as_str().to_string(),
         backend_strategy: snap.backend_strategy.as_str().to_string(),
+        write_routing: snap.write_routing.as_str().to_string(),
     })
 }
 
@@ -1374,6 +1381,8 @@ pub struct PutPostPolicyBody {
     pub policy: String,
     #[serde(default)]
     pub backend_strategy: Option<String>,
+    #[serde(default)]
+    pub write_routing: Option<String>,
 }
 
 async fn put_post_policy(
@@ -1393,12 +1402,22 @@ async fn put_post_policy(
             format!("invalid backend_strategy: {strategy}"),
         ));
     }
+    // write_routing 未指定なら現状維持（spec §5.15）
+    let current_routing = s.settings.snapshot().await.write_routing.as_str().to_string();
+    let routing = body.write_routing.as_deref().unwrap_or(&current_routing);
+    if !["all", "primary_default"].contains(&routing) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("invalid write_routing: {routing}"),
+        ));
+    }
     let _ = sqlx::query(
-        "INSERT INTO relay_settings (id, post_policy, backend_strategy) VALUES (1, ?, ?) \
-         ON CONFLICT(id) DO UPDATE SET post_policy = excluded.post_policy, backend_strategy = excluded.backend_strategy, updated_at = datetime('now')",
+        "INSERT INTO relay_settings (id, post_policy, backend_strategy, write_routing) VALUES (1, ?, ?, ?) \
+         ON CONFLICT(id) DO UPDATE SET post_policy = excluded.post_policy, backend_strategy = excluded.backend_strategy, write_routing = excluded.write_routing, updated_at = datetime('now')",
     )
     .bind(&body.policy)
     .bind(strategy)
+    .bind(routing)
     .execute(&s.pool)
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -1409,7 +1428,143 @@ async fn put_post_policy(
     Ok(Json(PostPolicyResponse {
         policy: snap.post_policy.as_str().to_string(),
         backend_strategy: snap.backend_strategy.as_str().to_string(),
+        write_routing: snap.write_routing.as_str().to_string(),
     }))
+}
+
+// ── 自動ガード（spec §5.14） ──
+
+#[derive(Debug, Serialize)]
+struct AutoGuardResponse {
+    enabled: bool,
+    burst_window_secs: u64,
+    burst_max_events: u64,
+    exclude_kinds: String,
+    duplicate_threshold: u64,
+    duplicate_window_secs: u64,
+    quarantine_secs: u64,
+    /// アクティブな content mute（hash, 失効 unix 秒）。先頭 100 件。
+    content_mutes: Vec<AutoGuardMute>,
+    content_mute_total: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct AutoGuardMute {
+    content_hash: String,
+    expires_at: u64,
+}
+
+fn auto_guard_response(
+    cfg: &crate::config::AutoGuardSettings,
+    guard: &AutoGuard,
+) -> AutoGuardResponse {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mutes = guard.active_mutes(now);
+    let total = mutes.len();
+    let mut kinds: Vec<i64> = cfg.exclude_kinds.iter().copied().collect();
+    kinds.sort();
+    AutoGuardResponse {
+        enabled: cfg.enabled,
+        burst_window_secs: cfg.burst_window_secs,
+        burst_max_events: cfg.burst_max_events,
+        exclude_kinds: kinds
+            .iter()
+            .map(|k| k.to_string())
+            .collect::<Vec<_>>()
+            .join(","),
+        duplicate_threshold: cfg.duplicate_threshold,
+        duplicate_window_secs: cfg.duplicate_window_secs,
+        quarantine_secs: cfg.quarantine_secs,
+        content_mutes: mutes
+            .into_iter()
+            .take(100)
+            .map(|(content_hash, expires_at)| AutoGuardMute {
+                content_hash,
+                expires_at,
+            })
+            .collect(),
+        content_mute_total: total,
+    }
+}
+
+async fn get_auto_guard(State(s): State<ApiState>) -> Json<AutoGuardResponse> {
+    let cfg = s.settings.snapshot().await.auto_guard;
+    Json(auto_guard_response(&cfg, &s.auto_guard))
+}
+
+#[derive(Debug, Deserialize)]
+struct PutAutoGuardBody {
+    enabled: bool,
+    burst_window_secs: u64,
+    burst_max_events: u64,
+    /// CSV（例: "7" / "6,7"）。空文字は除外なし。
+    #[serde(default)]
+    exclude_kinds: String,
+    duplicate_threshold: u64,
+    duplicate_window_secs: u64,
+    quarantine_secs: u64,
+}
+
+async fn put_auto_guard(
+    State(s): State<ApiState>,
+    Json(body): Json<PutAutoGuardBody>,
+) -> Result<Json<AutoGuardResponse>, (StatusCode, String)> {
+    if body.burst_window_secs == 0 || body.burst_max_events == 0 || body.quarantine_secs == 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "burst_window_secs / burst_max_events / quarantine_secs must be positive".to_string(),
+        ));
+    }
+    if body.duplicate_threshold < 2 || body.duplicate_window_secs == 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "duplicate_threshold must be >= 2 and duplicate_window_secs positive".to_string(),
+        ));
+    }
+    // CSV の妥当性チェック（数値以外が混ざっていたら弾く）
+    let normalized_kinds: Vec<String> = body
+        .exclude_kinds
+        .split(',')
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            t.parse::<i64>()
+                .map(|k| k.to_string())
+                .map_err(|_| format!("invalid kind in exclude_kinds: {t}"))
+        })
+        .collect::<Result<_, _>>()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    let _ = sqlx::query(
+        "UPDATE relay_settings SET \
+           auto_guard_enabled = ?, guard_burst_window_secs = ?, guard_burst_max_events = ?, \
+           guard_exclude_kinds = ?, guard_duplicate_threshold = ?, guard_duplicate_window_secs = ?, \
+           guard_quarantine_secs = ?, updated_at = datetime('now') \
+         WHERE id = 1",
+    )
+    .bind(if body.enabled { 1i64 } else { 0i64 })
+    .bind(body.burst_window_secs as i64)
+    .bind(body.burst_max_events as i64)
+    .bind(normalized_kinds.join(","))
+    .bind(body.duplicate_threshold as i64)
+    .bind(body.duplicate_window_secs as i64)
+    .bind(body.quarantine_secs as i64)
+    .execute(&s.pool)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if let Err(e) = s.settings.refresh().await {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+    let cfg = s.settings.snapshot().await.auto_guard;
+    Ok(Json(auto_guard_response(&cfg, &s.auto_guard)))
+}
+
+async fn clear_auto_guard_content_mutes(State(s): State<ApiState>) -> Json<serde_json::Value> {
+    let cleared = s.auto_guard.clear_mutes();
+    Json(serde_json::json!({ "cleared": cleared }))
 }
 
 // ── DSL ↔ Simple translate / dry-run ──

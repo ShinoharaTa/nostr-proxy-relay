@@ -292,3 +292,66 @@ PROFILER に "らしさ" を与える 4 つのシグネチャ。各画面で**�
 - 旧 `mock/themes/watchdogs/theme.css` (`archive/mock-themes-2026-05-04.zip` 内) がベース参考。ただし WD2 寄りだったため、本仕様は WD1 ctOS 寄りに振り直し
 - `/` (LP) と `/console` (空シェル + `/console/__dev` ショールーム) をブラウザで直接確認しながら調整
 - `/console/__dev` で全プリミティブ・アイコン・コンポーネントを Showroom 形式で確認
+
+
+---
+
+## UX / アクセシビリティ監査（2026-08）
+
+GOD'S EYE テーマ適用後、一般的な UI デザイン原則に照らして監査した結果と対応。
+**「映画的な見た目」を理由に UX を犠牲にしない**ことを原則とする。
+
+### コントラスト（WCAG 2.1 AA）
+
+キャプチャではなく計算で検証している。カード背景 `#180f07` 上の実測値:
+
+| トークン | 比 | 判定 |
+|---|---|---|
+| `--crt-fg` 本文 | 15.3:1 | PASS |
+| `--crt-fg-muted` 弱調 | 8.3:1 | PASS |
+| `--crt-fg-dim` ラベル | **5.8:1** | PASS（旧 `#8a7358` は 4.21:1 で未達 → `#a38b6b` へ修正） |
+| `--crt-accent` | 8.1:1 | PASS |
+| `--crt-info` | 10.2:1 | PASS |
+| `--crt-warn` | 10.6:1 | PASS |
+| `--crt-danger-text` | 6.7:1 | PASS |
+| `--crt-border-strong` 入力枠 | **3.5:1** | PASS（旧 `#6b4a24` は 2.53:1 で WCAG 1.4.11 未達 → `#8a612e` へ修正） |
+
+> 入力欄・ボタンの枠線は「非テキストコントラスト」として 3:1 が必要（1.4.11）。
+> 単なる区切り線（`--crt-border`）は対象外。
+
+### 確認ダイアログ
+
+**ブラウザ標準の `confirm()` は使わない。** 以下の理由で UX を下げるため:
+1. テーマから外れ、どのサイトの警告か分からない
+2. ボタンが「OK / キャンセル」固定で、**何が起きるか予測できない**
+3. モバイルで文言が省略される
+
+代わりに `useConfirm()`（`primitives/ConfirmHost.tsx`）を使い、
+**タイトル・具体的な影響の説明・動詞入りの実行ラベル**を必ず与える。
+破壊的操作は `destructive: true` で実行ボタンを danger 表示にする。
+
+```tsx
+const confirm = useConfirm();
+if (!(await confirm({
+  title: '恒久 BAN を実行しますか？',
+  body: `${npub} の投稿を恒久的に拒否します。解除は NPUB 画面から行えます。`,
+  confirmLabel: 'BAN する',
+  destructive: true,
+}))) return;
+```
+
+### ダイアログのキーボード操作（WAI-ARIA Dialog パターン）
+
+`Modal` は以下を満たす:
+- `role="dialog"` + `aria-modal="true"` + `aria-labelledby`（タイトルと紐付け）
+- 開いたら**最初の操作要素**にフォーカス（＝閉じる側。Enter 連打での誤爆防止）
+- Tab / Shift+Tab をダイアログ内に閉じ込める（フォーカストラップ）
+- Escape で閉じ、閉じたら**呼び出し元のボタンへフォーカスを戻す**
+- 背景のスクロールを停止
+
+### その他の原則
+
+- フォーカスリングは `:focus-visible` で accent 2px + offset 2px（`design/base.css`）。**消さない**
+- 破壊的操作は赤（danger）、通常の主操作は accent。色だけに頼らずラベルにも動詞を入れる
+- `prefers-reduced-motion` でスキャンライン・ティッカー・点滅を停止
+- テーブルは 1024px 未満でカード化（§6.3）。狭幅で HUD タグが縦積みに崩れないよう `nowrap`

@@ -8,6 +8,7 @@ mod docs;
 mod event_counter;
 mod event_stream;
 mod filter;
+mod guard;
 mod log_cleaner;
 mod metrics;
 mod nostr;
@@ -149,18 +150,6 @@ async fn get_backend_relay_url(pool: &SqlitePool) -> String {
 }
 
 /// DBから有効なバックエンドリレーURLをすべて取得
-async fn get_backend_relay_urls(pool: &SqlitePool) -> Vec<String> {
-    sqlx::query_as::<_, (String,)>(
-        "SELECT url FROM relay_config WHERE enabled = 1 ORDER BY id ASC",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|(url,)| url)
-    .collect()
-}
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct RelayInfoDb {
     pub name: Option<String>,
@@ -314,6 +303,7 @@ async fn main() -> anyhow::Result<()> {
     // uptime 計算用に起動時刻を確定させる (system::info / public::status から参照)
     let _ = api::system::init_started_at();
 
+    let auto_guard = guard::AutoGuard::new();
     let proxy_ctx = ProxyContext {
         pool: pool.clone(),
         settings: settings.clone(),
@@ -321,6 +311,7 @@ async fn main() -> anyhow::Result<()> {
         session_registry: session_registry.clone(),
         event_counter: event_counter.clone(),
         event_bus: event_bus.clone(),
+        auto_guard: auto_guard.clone(),
     };
 
     // RELAY_URL / GITHUB_URL は React LP (`web/src/landing/`) 内のリンク表示で利用するため、
@@ -537,6 +528,7 @@ async fn main() -> anyhow::Result<()> {
         ip_acl: ip_acl.clone(),
         session_registry: session_registry.clone(),
         event_bus: event_bus.clone(),
+        auto_guard: auto_guard.clone(),
     };
 
     // 公開 API（認証なし）。LP の status 表示など。BasicAuth の `/api` の前に
@@ -579,14 +571,9 @@ async fn main() -> anyhow::Result<()> {
                             Some(ws) => {
                                 tracing::info!(ip = %client_ip, "WebSocket upgrade request received");
                                 ws.on_upgrade(move |socket| async move {
-                                    let backend_urls = get_backend_relay_urls(&pool).await;
-                                    if backend_urls.is_empty() {
-                                        tracing::warn!(ip = %client_ip, "No backend relay configured");
-                                        return;
-                                    }
+                                    // バックエンド未設定のチェックとリレー属性の読込は proxy 側で行う
                                     if let Err(e) = crate::proxy::ws_proxy::proxy_ws_fanout_with_ctx(
                                         socket,
-                                        backend_urls,
                                         proxy_ctx,
                                         client_ip.clone(),
                                     )

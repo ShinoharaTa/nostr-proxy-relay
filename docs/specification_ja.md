@@ -24,6 +24,8 @@ Proxy Nostr Relay の機能仕様をまとめたドキュメントです。
    11. [ログとリテンション](#511-ログとリテンション)
    12. [NIP-11 Relay Information](#512-nip-11-relay-information)
    13. [管理 UI（管制コンソール / Live Event Stream）](#513-管理-ui管制コンソール--live-event-stream)
+   14. [自動ガード（バースト / 同一イベント検知 + 時限 Quarantine）](#514-自動ガードバースト--同一イベント検知--時限-quarantine)
+   15. [書き込みルーティング（broadcast npub / primary 限定送信）](#515-書き込みルーティングbroadcast-npub--primary-限定送信)
 6. [評価順序（フィルタリングパイプライン）](#6-評価順序フィルタリングパイプライン)
 7. [用語集](#7-用語集)
 
@@ -52,7 +54,7 @@ Proxy Nostr Relay の機能仕様をまとめたドキュメントです。
 
 ## 3. スコープ外（やらないこと）
 
-- 行動ベースの自動 BAN
+- 行動ベースの**恒久**自動 BAN（§5.14 の自動ガードは時限 Quarantine のみ発行し、恒久制裁は常に人間が判断する）
 - NIP-13 PoW 強制
 - First-seen による新規ユーザー強制締め出し
 - NIP-42 を必須にした READ 制限
@@ -225,6 +227,7 @@ ALTER TABLE ip_access_control ADD COLUMN mode TEXT
 | `npub` (PK) | 対象 npub |
 | `flags & 1` (post_allowed) | per-npub の POST allow オーバーライド |
 | `flags & 2` (filter_bypass) | フィルタを bypass（POST 許可とは直交） |
+| `flags & 8` (broadcast) | 書き込みルーティングで全リレー fan-out を許可（§5.15） |
 | `banned` | per-npub の POST deny オーバーライド（最強） |
 | `memo` | 運用メモ |
 
@@ -480,6 +483,165 @@ Grafana ダッシュボード JSON サンプルを `docs/grafana/` に同梱予�
 
 ---
 
+### 5.14 自動ガード（バースト / 同一イベント検知 + 時限 Quarantine）
+
+#### 位置付けと原則
+
+設計原則「善良な大量投稿者を壊さない」「判断は人間」との両立を最優先する。
+
+- **検知は自動、恒久制裁はしない。** ガード発火時のアクションは**時限 Quarantine の自動発行のみ**。
+  永久 BAN・safelist の書き換えは一切しない。
+- 発火したエントリは既存の Quarantine 画面に理由付きで表示され、**1 クリックで即解除**できる。
+  誤検知しても `guard_quarantine_secs`（既定 10 分）で自動失効する。
+- 機能全体が **opt-in**（既定 OFF）。閾値はすべてコンソールから調整可能。
+
+#### 除外（ガードが一切発火しない対象）
+
+1. IP whitelist（§5.3）に該当する接続
+2. `safelist` に登録済みで `post_allowed` / `filter_bypass` / `broadcast`（§5.15）いずれかのフラグを持つ npub
+
+実況勢など善良な大量投稿者は safelist 登録によって完全に保護する。
+
+#### 検知器 1: バースト投稿レート
+
+参考実装: [kojira/strfry-ratelimit](https://github.com/kojira/strfry-ratelimit)（sliding window / kind クラス別除外の設計を踏襲）。
+
+- 単位: **プロセス全体の pubkey ごと**の sliding window
+  （pubkey → タイムスタンプ VecDeque。チェック時に窓外を prune。接続単位にすると多重接続で回避できるためグローバル）
+- 既定: **60 秒窓で 30 EVENT**。閾値・窓はコンソールから変更可能
+- **kind クラス別除外**（蓄積悪用が不可能な kind はカウント対象外）:
+  - ephemeral（20000–29999）と replaceable（0, 3, 41, 10000–19999）は常に除外
+  - `guard_exclude_kinds`（CSV、既定 `7`）で任意の kind を追加除外（リアクション実況勢の保護）
+- 超過時: 当該 npub に scope `post` の Quarantine を自動発行
+  （reason: `auto_guard:burst`、expires_at: now + `guard_quarantine_secs`）
+- 発火後の EVENT は既存の Quarantine 評価（§5.5）が OK true 偽装で吸収する
+- メモリ衛生: 一定操作数ごとに空バケット・期限切れエントリを evict
+
+#### 検知器 2: 複数接続からの同一イベント
+
+捨て鍵・多重クライアントによる同一内容スパムを検知する。
+
+- 単位: `content` の SHA-256 ハッシュをキーにしたグローバル LRU（プロセス内メモリ、直近 N 万件）
+- 判定: **異なる接続（IP）** `guard_duplicate_threshold` 件（既定 3）以上から、
+  `guard_duplicate_window_secs`（既定 300 秒）以内に同一ハッシュの EVENT が POST されたら発火
+- 発火時のアクション（2 段構え）:
+  1. 投稿元の各 npub に scope `post` の時限 Quarantine を自動発行（reason: `auto_guard:duplicate_content`）
+  2. 当該 content ハッシュを **content mute リスト**（メモリ内、TTL = `guard_quarantine_secs`）へ登録し、
+     以後同一内容の POST は **npub を問わず** OK true 偽装で drop する
+- 補足: 捨て鍵スパムは npub を毎回変えるため、npub 単位の Quarantine だけでは実効性がない。
+  content mute が本体で、Quarantine は「観測済み npub の可視化」を兼ねる。
+  content mute は永続化しない（再起動でクリアされてよい一時防壁）。
+
+#### 可視性
+
+- 発火は `LiveEventBus` に publish し、Live Events 画面にリアルタイム表示
+- `event_rejection_logs` に reason `auto_guard:burst` / `auto_guard:duplicate_content` で記録
+- 自動発行された Quarantine エントリは reason プレフィックス `auto_guard:` で手動エントリと区別できる
+
+#### DB スキーマ変更（relay_settings に追加）
+
+```sql
+ALTER TABLE relay_settings ADD COLUMN auto_guard_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE relay_settings ADD COLUMN guard_burst_window_secs INTEGER NOT NULL DEFAULT 60;
+ALTER TABLE relay_settings ADD COLUMN guard_burst_max_events INTEGER NOT NULL DEFAULT 30;
+ALTER TABLE relay_settings ADD COLUMN guard_exclude_kinds TEXT NOT NULL DEFAULT '7';
+ALTER TABLE relay_settings ADD COLUMN guard_duplicate_threshold INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE relay_settings ADD COLUMN guard_duplicate_window_secs INTEGER NOT NULL DEFAULT 300;
+ALTER TABLE relay_settings ADD COLUMN guard_quarantine_secs INTEGER NOT NULL DEFAULT 600;
+```
+
+設定は `SettingsCache`（§B-2 の watch チャンネル）経由で live 反映する。
+
+#### API
+
+- `GET /api/auto-guard` → 設定 + 現在アクティブな content mute 一覧（件数と先頭 100 件）
+- `PUT /api/auto-guard` → 設定更新（`SettingsCache.refresh()` を発火）
+- `DELETE /api/auto-guard/content-mutes` → content mute の全クリア（誤検知時の緊急解除）
+- 自動発行された Quarantine の解除は既存 `DELETE /api/quarantine/:id` を使う
+
+#### コンソール UI
+
+- FILTERING グループに「Auto Guard」ページを追加（有効化トグル・閾値編集・アクティブ mute 一覧）
+- Quarantine 画面で `auto_guard:` エントリにバッジ表示
+
+---
+
+### 5.15 書き込みルーティング（broadcast npub / primary 限定送信）
+
+#### 目的
+
+運用者自身など**許可された npub の投稿は全バックエンドリレーへ fan-out** し、
+それ以外のユーザーの投稿は**既定の書き込み先（primary）にのみ**送る。
+外部ユーザーの投稿をミラー先へ無差別に拡散させないためのルーティング制御。
+
+#### 判定モデル
+
+- `safelist.flags` に新ビット **8 = broadcast** を追加
+  （既存: 1=post_allowed, 2=filter_bypass, 4=banned 予約。§5.4 の表を更新）
+- ルーティングモードは `relay_settings.write_routing` で切替:
+
+| Mode | 動作 |
+|---|---|
+| `all`（既定） | 従来どおり全 `write_enabled` リレーへ送信（後方互換） |
+| `primary_default` | `flags & 8` を持つ npub のみ全 `write_enabled` リレーへ。それ以外は `role = 'primary'` かつ `write_enabled` のリレーのみへ |
+
+#### 送信先の決定
+
+- **EVENT（POST）**: 上記モードで決定。
+  `primary_default` で primary な write 先が 1 本もない場合は全 `write_enabled` リレーへフォールバックし warn ログを出す（fail-open）
+- **REQ / CLOSE**: `read_enabled = 1` のリレーのみへ送信（ルーティングモードと無関係）
+- broadcast 判定は POST ポリシー評価（§5.2）と同じ `safelist` 行を参照するため追加クエリは不要
+
+#### DB スキーマ変更
+
+```sql
+-- role / weight / read_enabled / write_enabled は 0012 で導入済み
+-- （role は 'primary' / 'secondary' / 'observer'）
+ALTER TABLE relay_settings ADD COLUMN write_routing TEXT NOT NULL DEFAULT 'all'
+  CHECK (write_routing IN ('all', 'primary_default'));
+```
+
+#### 推奨トポロジー（ストレージレス運用）
+
+このプロキシは自前のイベントストレージを持たない。OK true を返した EVENT の保存責任を
+確定的に果たすため、以下の構成を推奨する:
+
+| リレー | role | read | write | 役割 |
+|---|---|---|---|---|
+| 運用者自身のリレー | `primary` | ✅ | ✅ | プロキシの事実上のストレージ。全 POST の確定的な保存先 |
+| 外部リレー | `secondary` | ✅ | ❌ | 読み取り専用ソース。他人の投稿は流れない（Outbox の責任分界を守る） |
+
+- `write_routing = primary_default` とする
+- **整合条件: write 先 ⊆ read 元。** primary に書いた EVENT はプロキシ経由の REQ で必ず読み返せること
+  （primary を read_enabled にしておけば満たされる）
+- 自分の投稿の外部リレーへの配置は、クライアント側の Outbox（NIP-65 / kind 10002 に列挙して
+  マルチポスト）に任せる。プロキシ側でミラーしたい場合のみ、対象リレーを write 有効にして
+  broadcast フラグを使う
+
+#### 決定事項（2026-08 合意）
+
+- **配送はベストエフォート。** primary への送信失敗時に OK false を返したり受理を拒否したりはしない。
+  切断中の EVENT は worker のチャンネルに滞留し再接続後に送られるが、プロキシ再起動で消える。
+  耐久性の実質的な保証は「primary が安定稼働している自リレーであること」に置く
+- **kind によるルーティング例外は設けない。** discovery kind（0 / 3 / 10002）の特例 fan-out 等は
+  行わず、送信先は常にリレー設定（role / read_enabled / write_enabled / write_routing）のみで決まる。
+  kind 10002 への準拠は「フィルタで弾かず primary に保存し REQ で返す」ことで満たす
+
+#### 実装メモ（ws_proxy）
+
+- `backend_txs: Vec<Sender>` を `Vec<BackendHandle { tx, url, role, read_enabled, write_enabled }>` に拡張
+- `load_backend_urls` を `enabled = 1` に加えて role / read / write 列も取得する形へ変更
+- `send_to_backends` を「述語付き送信」（`send_to_backends_where`）に一般化
+- OK / EOSE / CLOSED の集約は既存実装のまま（送信先サブセットの connected worker のみ待つ）
+
+#### API / UI
+
+- `GET / PUT /api/post-policy` に `write_routing` を追加（または `PUT /api/relay-settings` 系に集約）
+- Backend Relays 画面: role / read / write 列は表示済みのため、write_routing トグルを追加
+- Npub 画面: broadcast フラグのトグルを追加
+
+---
+
 ## 6. 評価順序（フィルタリングパイプライン）
 
 EVENT が通過する評価順序を上から順に：
@@ -492,7 +654,8 @@ EVENT が通過する評価順序を上から順に：
 5. Quarantine 評価（§5.5、scope に応じて drop / OK true 偽装）
 6. POST 適用フラグ付き Simple BAN（§5.6）
 7. POST 適用フラグ付き DSL Rule（§5.7）
-8. すべて pass → バックエンドへ転送
+8. 自動ガード評価（§5.14、content mute → バースト / 重複検知）
+9. すべて pass → 書き込みルーティング（§5.15）で決定した送信先バックエンドへ転送
 
 ### REQ 応答 EVENT（バックエンド → クライアント）
 1. IP shadow_ban チェック → 該当なら EOSE 偽装で REQ 段階で打ち切り（応答 EVENT は届かない）

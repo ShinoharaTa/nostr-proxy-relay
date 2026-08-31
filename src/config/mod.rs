@@ -58,11 +58,65 @@ impl BackendStrategy {
     }
 }
 
+/// 書き込みルーティングモード（spec §5.15）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteRouting {
+    /// 全 write_enabled リレーへ送信（従来互換）
+    All,
+    /// broadcast フラグ持ち npub のみ全リレーへ、他は primary のみへ
+    PrimaryDefault,
+}
+
+impl WriteRouting {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "primary_default" => Self::PrimaryDefault,
+            _ => Self::All,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::PrimaryDefault => "primary_default",
+        }
+    }
+}
+
+/// 自動ガード設定（spec §5.14）。既定 OFF の opt-in。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoGuardSettings {
+    pub enabled: bool,
+    pub burst_window_secs: u64,
+    pub burst_max_events: u64,
+    /// バースト検知から除外する kind（ephemeral / replaceable はコード側で常に除外）
+    pub exclude_kinds: HashSet<i64>,
+    pub duplicate_threshold: u64,
+    pub duplicate_window_secs: u64,
+    pub quarantine_secs: u64,
+}
+
+impl Default for AutoGuardSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            burst_window_secs: 60,
+            burst_max_events: 30,
+            exclude_kinds: HashSet::from([7]),
+            duplicate_threshold: 3,
+            duplicate_window_secs: 300,
+            quarantine_secs: 600,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeSettings {
     pub post_policy: PostPolicy,
     pub backend_strategy: BackendStrategy,
     pub eose_autoclose_kinds: HashSet<i64>,
+    pub write_routing: WriteRouting,
+    pub auto_guard: AutoGuardSettings,
 }
 
 impl RuntimeSettings {
@@ -71,6 +125,8 @@ impl RuntimeSettings {
             post_policy: PostPolicy::Allowlist,
             backend_strategy: BackendStrategy::Failover,
             eose_autoclose_kinds: parse_eose_autoclose_kinds_from_env(),
+            write_routing: WriteRouting::All,
+            auto_guard: AutoGuardSettings::default(),
         }
     }
 }
@@ -98,32 +154,68 @@ impl SettingsCache {
     }
 
     async fn load_from_db(pool: &SqlitePool) -> anyhow::Result<RuntimeSettings> {
-        let row: Option<(String, String, String)> = sqlx::query_as(
-            "SELECT post_policy, backend_strategy, eose_autoclose_kinds FROM relay_settings WHERE id = 1",
+        type Row = (
+            String, // post_policy
+            String, // backend_strategy
+            String, // eose_autoclose_kinds
+            String, // write_routing
+            i64,    // auto_guard_enabled
+            i64,    // guard_burst_window_secs
+            i64,    // guard_burst_max_events
+            String, // guard_exclude_kinds
+            i64,    // guard_duplicate_threshold
+            i64,    // guard_duplicate_window_secs
+            i64,    // guard_quarantine_secs
+        );
+        let row: Option<Row> = sqlx::query_as(
+            "SELECT post_policy, backend_strategy, eose_autoclose_kinds, write_routing,                     auto_guard_enabled, guard_burst_window_secs, guard_burst_max_events,                     guard_exclude_kinds, guard_duplicate_threshold, guard_duplicate_window_secs,                     guard_quarantine_secs              FROM relay_settings WHERE id = 1",
         )
         .fetch_optional(pool)
         .await?;
 
         let env_kinds = parse_eose_autoclose_kinds_from_env();
-        if let Some((policy, strategy, kinds_csv)) = row {
-            let mut kinds: HashSet<i64> = kinds_csv
-                .split(',')
-                .filter_map(|s| s.trim().parse::<i64>().ok())
-                .collect();
+        if let Some((
+            policy,
+            strategy,
+            kinds_csv,
+            write_routing,
+            guard_enabled,
+            burst_window,
+            burst_max,
+            exclude_csv,
+            dup_threshold,
+            dup_window,
+            quarantine_secs,
+        )) = row
+        {
+            let mut kinds: HashSet<i64> = parse_kind_csv(&kinds_csv);
             // env を後勝ちで union（後方互換: env にあるものは必ず効かせる）
             for k in env_kinds {
                 kinds.insert(k);
             }
+            let defaults = AutoGuardSettings::default();
             Ok(RuntimeSettings {
                 post_policy: PostPolicy::from_str(&policy),
                 backend_strategy: BackendStrategy::from_str(&strategy),
                 eose_autoclose_kinds: kinds,
+                write_routing: WriteRouting::from_str(&write_routing),
+                auto_guard: AutoGuardSettings {
+                    enabled: guard_enabled != 0,
+                    burst_window_secs: u64::try_from(burst_window).ok().filter(|n| *n > 0).unwrap_or(defaults.burst_window_secs),
+                    burst_max_events: u64::try_from(burst_max).ok().filter(|n| *n > 0).unwrap_or(defaults.burst_max_events),
+                    exclude_kinds: parse_kind_csv(&exclude_csv),
+                    duplicate_threshold: u64::try_from(dup_threshold).ok().filter(|n| *n > 1).unwrap_or(defaults.duplicate_threshold),
+                    duplicate_window_secs: u64::try_from(dup_window).ok().filter(|n| *n > 0).unwrap_or(defaults.duplicate_window_secs),
+                    quarantine_secs: u64::try_from(quarantine_secs).ok().filter(|n| *n > 0).unwrap_or(defaults.quarantine_secs),
+                },
             })
         } else {
             Ok(RuntimeSettings {
                 post_policy: PostPolicy::Allowlist,
                 backend_strategy: BackendStrategy::Failover,
                 eose_autoclose_kinds: env_kinds,
+                write_routing: WriteRouting::All,
+                auto_guard: AutoGuardSettings::default(),
             })
         }
     }
@@ -135,7 +227,9 @@ impl SettingsCache {
             let mut inner = self.inner.write().await;
             *inner = new;
         }
-        let _ = self.bump_tx.send(self.bump_tx.borrow().wrapping_add(1));
+        // NOTE: `send(self.bump_tx.borrow() + 1)` は borrow の read ガードが式末尾まで
+        // 生存したまま send が write ロックを取るため同一スレッドでデッドロックする。
+        self.bump_tx.send_modify(|v| *v = v.wrapping_add(1));
         Ok(())
     }
 
@@ -143,7 +237,7 @@ impl SettingsCache {
     /// relay_config / relay_info など SettingsCache 管理外の設定が変わったときに、
     /// live な接続へ再読込（バックエンド再構築・limit 反映）を促すために使う。
     pub fn notify(&self) {
-        let _ = self.bump_tx.send(self.bump_tx.borrow().wrapping_add(1));
+        self.bump_tx.send_modify(|v| *v = v.wrapping_add(1));
     }
 
     /// 設定変更通知を受け取る。
@@ -162,6 +256,20 @@ impl SettingsCache {
     pub async fn eose_autoclose_kinds(&self) -> HashSet<i64> {
         self.inner.read().await.eose_autoclose_kinds.clone()
     }
+
+    pub async fn write_routing(&self) -> WriteRouting {
+        self.inner.read().await.write_routing
+    }
+
+    pub async fn auto_guard(&self) -> AutoGuardSettings {
+        self.inner.read().await.auto_guard.clone()
+    }
+}
+
+fn parse_kind_csv(csv: &str) -> HashSet<i64> {
+    csv.split(',')
+        .filter_map(|s| s.trim().parse::<i64>().ok())
+        .collect()
 }
 
 fn parse_eose_autoclose_kinds_from_env() -> HashSet<i64> {

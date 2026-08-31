@@ -27,9 +27,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'OVERVIEW',
     icon: 'nav-overview',
     items: [
-      { id: 'dashboard', label: 'DASHBOARD',   to: '/',         icon: 'nav-overview' },
-      { id: 'live',      label: 'LIVE EVENTS', to: '/live',     icon: 'eye' },
-      { id: 'logs',      label: 'LOGS',        to: '/logs',     icon: 'nav-ops' },
+      { id: 'deck',      label: 'DECK',        to: '/',           icon: 'nav-overview' },
+      { id: 'dashboard', label: 'DASHBOARD',   to: '/dashboard',  icon: 'nav-overview' },
+      { id: 'live',      label: 'LIVE EVENTS', to: '/live',       icon: 'eye' },
+      { id: 'logs',      label: 'LOGS',        to: '/logs',       icon: 'nav-ops' },
     ],
   },
   {
@@ -57,9 +58,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'FILTERING',
     icon: 'nav-filter',
     items: [
-      { id: 'kind',      label: 'KIND BLOCKLIST', to: '/filter/kind',      icon: 'nav-filter' },
-      { id: 'dsl',       label: 'DSL RULES',      to: '/filter/dsl',       icon: 'nav-filter' },
-      { id: 'quick-ban', label: 'QUICK BAN',      to: '/filter/quick-ban', icon: 'ban' },
+      { id: 'kind',       label: 'KIND BLOCKLIST', to: '/filter/kind',       icon: 'nav-filter' },
+      { id: 'dsl',        label: 'DSL RULES',      to: '/filter/dsl',        icon: 'nav-filter' },
+      { id: 'quick-ban',  label: 'QUICK BAN',      to: '/filter/quick-ban',  icon: 'ban' },
+      { id: 'auto-guard', label: 'AUTO GUARD',     to: '/filter/auto-guard', icon: 'clock' },
     ],
   },
   {
