@@ -14,7 +14,7 @@ interface Props {
   showCrtOverlay?: boolean;
 }
 
-/** PROFILER AppShell.
+/** GOD'S EYE AppShell.
  *  ds-noise / DedSec スカル overlay は外し、CCTV 走査線 (opacity 0.10) のみ。
  *  - localStorage の UI prefs を mount 時に body class に反映
  *  - OfflineBar (オフライン検出) を最上位に置く

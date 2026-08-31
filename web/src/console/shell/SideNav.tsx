@@ -7,7 +7,7 @@ export function SideNav() {
   return (
     <nav className="crt-shell__side crt-side crt-lg-up" aria-label="primary">
       <div className="crt-side__brand">
-        <strong>Profiler</strong>
+        <strong>God&apos;s Eye</strong>
         <span>nostr proxy relay</span>
       </div>
 

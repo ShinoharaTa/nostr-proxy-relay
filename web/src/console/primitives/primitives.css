@@ -139,7 +139,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /* 狭い幅で HUD タグが 1 文字ずつ折り返して縦積みになるのを防ぐ */
+  flex-wrap: wrap;
+  min-width: 0;
 }
+.crt-card__title .crt-hud-tag { white-space: nowrap; }
 /* L 字コーナーマーク (控えめ) — bracket prop が指定されたカードのみ */
 .crt-card--bracket {
   border-color: var(--crt-border-strong);
