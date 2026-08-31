@@ -2,9 +2,14 @@ import type { IconName } from '../icons/Icon';
 
 export interface NavItem {
   id: string;
+  /** 主ラベル（日本語）。「何ができる画面か」が読める動詞・名詞で */
   label: string;
+  /** 補足（英語の元名称や一言説明）。主ラベルの下に小さく出す */
+  sub?: string;
   to: string;
   icon: IconName;
+  /** 未対応件数バッジを出すキー（AppShell 側で件数を解決する） */
+  badge?: 'block' | 'quarantine';
 }
 
 export interface NavGroup {
@@ -16,66 +21,65 @@ export interface NavGroup {
 }
 
 /**
- * 5 グループ × ナビ項目（docs/ui_redesign_ja.md §3.2 IA + §4 URL マップ）。
- * - URL は `/console/...` 配下を前提に **basename を抜いた** 相対パスで定義
- *   (ConsoleApp は basename="/console" の <BrowserRouter> 配下)
- * - 命名は §3.3 命名統一表に準拠
+ * ナビゲーション定義（Issue #29 / docs/ui_redesign_ja.md §15）。
+ *
+ * 設計原則:
+ * - グループは**運用者の意図**で切る（実装都合の ACCESS / FILTERING はやめた）
+ * - ラベルは日本語で「何ができるか」、`sub` に元の英語名を残して移行の手掛かりにする
+ * - **アイコンは全項目で固有**にする（重複させると見分けの助けにならずノイズになる）
+ * - URL は `/console/...` 配下を前提に basename を抜いた相対パスで定義
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    id: 'overview',
-    label: 'OVERVIEW',
-    icon: 'nav-overview',
+    id: 'watch',
+    label: 'みる',
+    icon: 'grp-watch',
     items: [
-      { id: 'deck',      label: 'DECK',        to: '/',           icon: 'nav-overview' },
-      { id: 'dashboard', label: 'DASHBOARD',   to: '/dashboard',  icon: 'nav-overview' },
-      { id: 'live',      label: 'LIVE EVENTS', to: '/live',       icon: 'eye' },
-      { id: 'logs',      label: 'LOGS',        to: '/logs',       icon: 'nav-ops' },
+      { id: 'deck', label: '管制卓', sub: '全体状況と要対応', to: '/',      icon: 'nav-deck' },
+      { id: 'live', label: 'ライブ', sub: '流れているイベント', to: '/live', icon: 'nav-live' },
+      { id: 'logs', label: 'ログ',   sub: '接続 / 拒否 / リレー', to: '/logs', icon: 'nav-log' },
     ],
   },
   {
-    id: 'backend',
-    label: 'BACKEND',
-    icon: 'nav-backend',
+    id: 'stop',
+    label: 'とめる',
+    icon: 'nav-block',
     items: [
-      { id: 'relays', label: 'BACKEND RELAYS', to: '/backend/relays', icon: 'nav-backend' },
-      { id: 'nip11',  label: 'NIP-11',         to: '/backend/nip11',  icon: 'nav-backend' },
+      { id: 'block',      label: 'ブロック',   sub: 'npub・IP をまとめて', to: '/block',      icon: 'nav-block',       badge: 'block' },
+      { id: 'quarantine', label: '一時停止',   sub: 'Quarantine（時限）',  to: '/quarantine', icon: 'nav-pause-timed', badge: 'quarantine' },
+      { id: 'guard',      label: '自動ガード', sub: '閾値とその発火',      to: '/auto-guard', icon: 'nav-guard' },
     ],
   },
   {
-    id: 'access',
-    label: 'ACCESS',
-    icon: 'nav-access',
+    id: 'rules',
+    label: 'ルール',
+    icon: 'nav-policy',
     items: [
-      { id: 'post-policy', label: 'POST POLICY', to: '/access/post-policy', icon: 'nav-access' },
-      { id: 'npub',        label: 'NPUB',        to: '/access/npub',        icon: 'eye' },
-      { id: 'ip',          label: 'IP ACL',      to: '/access/ip',          icon: 'ban' },
-      { id: 'quarantine',  label: 'QUARANTINE',  to: '/access/quarantine',  icon: 'clock' },
+      { id: 'policy', label: '投稿ポリシー', sub: '誰の投稿を受けるか', to: '/policy', icon: 'nav-policy' },
+      { id: 'kind',   label: 'kind 制限',   sub: '種別で弾く',         to: '/kind',   icon: 'nav-kind' },
+      { id: 'dsl',    label: 'DSL ルール',  sub: '条件式で弾く',       to: '/dsl',    icon: 'nav-dsl' },
     ],
   },
   {
-    id: 'filter',
-    label: 'FILTERING',
-    icon: 'nav-filter',
+    id: 'uplink',
+    label: 'つなぐ',
+    icon: 'nav-uplink',
     items: [
-      { id: 'kind',       label: 'KIND BLOCKLIST', to: '/filter/kind',       icon: 'nav-filter' },
-      { id: 'dsl',        label: 'DSL RULES',      to: '/filter/dsl',        icon: 'nav-filter' },
-      { id: 'quick-ban',  label: 'QUICK BAN',      to: '/filter/quick-ban',  icon: 'ban' },
-      { id: 'auto-guard', label: 'AUTO GUARD',     to: '/filter/auto-guard', icon: 'clock' },
+      { id: 'relays', label: '上流リレー',   sub: '接続先と読み書き',   to: '/relays', icon: 'nav-uplink' },
+      { id: 'nip11',  label: 'リレー情報',   sub: 'NIP-11 公開情報',    to: '/nip11',  icon: 'nav-info' },
     ],
   },
   {
-    id: 'ops',
-    label: 'OPERATIONS',
-    icon: 'nav-ops',
+    id: 'settings',
+    label: '設定',
+    icon: 'nav-system',
     items: [
-      { id: 'telemetry', label: 'TELEMETRY', to: '/operations/telemetry', icon: 'nav-ops' },
-      { id: 'system',    label: 'SYSTEM',    to: '/operations/system',    icon: 'nav-ops' },
+      { id: 'system', label: 'システム', sub: '計測・環境・保持', to: '/system', icon: 'nav-system' },
     ],
   },
 ];
 
-/** 階層深さに応じて active 判定。`/console/access/ip` のとき `/access/ip` が一致。 */
+/** 階層深さに応じて active 判定。`/console/block` のとき `/block` が一致。 */
 export function isItemActive(itemTo: string, currentPath: string): boolean {
   if (itemTo === '/') return currentPath === '/' || currentPath === '';
   return currentPath === itemTo || currentPath.startsWith(`${itemTo}/`);

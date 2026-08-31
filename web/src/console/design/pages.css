@@ -280,3 +280,23 @@ body.crt-animations-off .crt-app *::after {
   animation: crt-blink 1.2s steps(2, end) infinite;
 }
 body.crt-animations-off .crt-offline-bar__dot { animation: none !important; }
+
+
+/* ── 横スクロール防止（Issue #29 のキャプチャ検証で検出） ──
+   グリッド／フレックスの子は min-content 未満に縮まないため、
+   長い文字列や固定幅の入力が 1 つあるだけで画面全体が横に伸びる。 */
+.crt-app .form-grid { min-width: 0; }
+.crt-app .form-grid > label { min-width: 0; }
+.crt-app .form-grid input,
+.crt-app .form-grid select,
+.crt-app .form-grid textarea { max-width: 100%; }
+
+/* JSON プレビューなど整形済みテキストは、それ自体を横スクロールさせる */
+.crt-app .json-preview {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* カード自体もはみ出さない */
+.crt-app .crt-card { min-width: 0; max-width: 100%; }

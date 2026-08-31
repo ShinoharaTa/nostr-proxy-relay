@@ -128,6 +128,22 @@
   padding: var(--crt-gap-lg);
   color: var(--crt-fg);
 }
+/* カードヘッダ: 狭い幅では見出しと操作を折り返す。
+   折り返さないと Pill 群が縮まず、シェルごと横に伸びて画面が横スクロールする。 */
+.crt-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--crt-gap-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.crt-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
 .crt-card__title {
   margin: 0 0 var(--crt-gap-sm) 0;
   font-family: var(--crt-font-display);
@@ -270,6 +286,9 @@
   display: inline-flex;
   gap: 0;
   border: 1px solid var(--crt-border-strong);
+  /* 選択肢が多いと横に伸び続けるため、狭い幅では折り返す */
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 .crt-pill__btn {
   padding: 6px 14px;

@@ -22,23 +22,19 @@ const PASS = args.pass ?? process.env.ADMIN_PASS ?? 'admin';
 
 /** 撮影対象。console 配下は BasicAuth、LP と docs は公開ページ。 */
 const PAGES = [
-  ['deck',        '/console/'],
-  ['dashboard',   '/console/dashboard'],
-  ['live',        '/console/live'],
-  ['logs',        '/console/logs'],
-  ['relays',      '/console/backend/relays'],
-  ['nip11',       '/console/backend/nip11'],
-  ['post-policy', '/console/access/post-policy'],
-  ['npub',        '/console/access/npub'],
-  ['ip-acl',      '/console/access/ip'],
-  ['quarantine',  '/console/access/quarantine'],
-  ['kind',        '/console/filter/kind'],
-  ['dsl',         '/console/filter/dsl'],
-  ['quick-ban',   '/console/filter/quick-ban'],
-  ['auto-guard',  '/console/filter/auto-guard'],
-  ['telemetry',   '/console/operations/telemetry'],
-  ['system',      '/console/operations/system'],
-  ['landing',     '/'],
+  ['deck',       '/console/'],
+  ['live',       '/console/live'],
+  ['logs',       '/console/logs'],
+  ['block',      '/console/block'],
+  ['quarantine', '/console/quarantine'],
+  ['auto-guard', '/console/auto-guard'],
+  ['policy',     '/console/policy'],
+  ['kind',       '/console/kind'],
+  ['dsl',        '/console/dsl'],
+  ['relays',     '/console/relays'],
+  ['nip11',      '/console/nip11'],
+  ['system',     '/console/system'],
+  ['landing',    '/'],
 ];
 
 const VIEWPORTS = [

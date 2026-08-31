@@ -7,28 +7,24 @@ import { ConsoleI18nProvider } from './i18n';
 import { ToastHost } from './primitives/Toast';
 import { ConfirmHost } from './primitives/ConfirmHost';
 import { Showroom } from './pages/Showroom';
-import { Dashboard } from './pages/Dashboard';
 import { DeckPage } from './pages/Deck';
 import { LiveEvents } from './pages/LiveEvents';
 import { LogsPage } from './pages/Logs';
 import { BackendRelays } from './pages/BackendRelays';
 import { Nip11Editor } from './pages/Nip11Editor';
 import { PostPolicyPage } from './pages/PostPolicy';
-import { NpubPage } from './pages/Npub';
-import { IpAclPage } from './pages/IpAcl';
+import { BlockPage } from './pages/Block';
 import { QuarantinePage } from './pages/Quarantine';
 import { KindBlocklistPage } from './pages/KindBlocklist';
-import { DslRulesPage } from './pages/DslRules';
-import { QuickBanPage } from './pages/QuickBan';
+import { RulesPage } from './pages/Rules';
 import { AutoGuardPage } from './pages/AutoGuard';
-import { TelemetryPage } from './pages/Telemetry';
-import { SystemPage } from './pages/SystemPage';
+import { SettingsPage } from './pages/Settings';
 
 /**
- * 新管理コンソール (Phase 2)。
+ * 管理コンソール。
  * - basename="/console" の `<BrowserRouter>` 配下で動作
- * - URL マップは docs/ui_redesign_ja.md §4 を厳守
- * - 命名は §3.3 命名統一表に準拠
+ * - IA / URL マップは docs/ui_redesign_ja.md §15（Issue #29 で再編）
+ * - 旧 URL はすべて redirect を残す（ブックマーク保護）
  */
 export function ConsoleApp() {
   return (
@@ -37,44 +33,53 @@ export function ConsoleApp() {
       <ConfirmHost>
       <AppShell>
         <Routes>
-          {/* OVERVIEW */}
-          <Route path="/"          element={<DeckPage />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/live"      element={<LiveEvents />} />
-          <Route path="/logs"      element={<LogsPage />} />
+          {/* みる */}
+          <Route path="/"     element={<DeckPage />} />
+          <Route path="/live" element={<LiveEvents />} />
+          <Route path="/logs" element={<LogsPage />} />
 
-          {/* BACKEND */}
-          <Route path="/backend/relays" element={<BackendRelays />} />
-          <Route path="/backend/nip11"  element={<Nip11Editor />} />
+          {/* とめる */}
+          <Route path="/block"      element={<BlockPage />} />
+          <Route path="/quarantine" element={<QuarantinePage />} />
+          <Route path="/auto-guard" element={<AutoGuardPage />} />
 
-          {/* ACCESS CONTROL */}
-          <Route path="/access/post-policy" element={<PostPolicyPage />} />
-          <Route path="/access/npub"        element={<NpubPage />} />
-          <Route path="/access/ip"          element={<IpAclPage />} />
-          <Route path="/access/quarantine"  element={<QuarantinePage />} />
+          {/* ルール */}
+          <Route path="/policy" element={<PostPolicyPage />} />
+          <Route path="/kind"   element={<KindBlocklistPage />} />
+          <Route path="/dsl"    element={<RulesPage />} />
 
-          {/* FILTERING */}
-          <Route path="/filter/kind"      element={<KindBlocklistPage />} />
-          <Route path="/filter/dsl"       element={<DslRulesPage />} />
-          <Route path="/filter/quick-ban" element={<QuickBanPage />} />
-          <Route path="/filter/auto-guard" element={<AutoGuardPage />} />
+          {/* つなぐ */}
+          <Route path="/relays" element={<BackendRelays />} />
+          <Route path="/nip11"  element={<Nip11Editor />} />
 
-          {/* OPERATIONS */}
-          <Route path="/operations/telemetry" element={<TelemetryPage />} />
-          <Route path="/operations/system"    element={<SystemPage />} />
+          {/* 設定 */}
+          <Route path="/system" element={<SettingsPage />} />
 
           {/* プリミティブショールーム (開発用) */}
           <Route path="/__dev" element={<Showroom />} />
 
-          {/* 旧 URL の互換用 fallback */}
-          <Route path="/relays"     element={<Navigate to="/backend/relays" replace />} />
-          <Route path="/post-pol"   element={<Navigate to="/access/post-policy" replace />} />
-          <Route path="/ip-acl"     element={<Navigate to="/access/ip" replace />} />
-          <Route path="/npub"       element={<Navigate to="/access/npub" replace />} />
-          <Route path="/quarantine" element={<Navigate to="/access/quarantine" replace />} />
-          <Route path="/simple-ban" element={<Navigate to="/filter/quick-ban" replace />} />
-          <Route path="/dsl"        element={<Navigate to="/filter/dsl" replace />} />
-          <Route path="/settings"   element={<Navigate to="/operations/system" replace />} />
+          {/* ── 旧 URL の互換 redirect ──
+              Phase 2 の 5 グループ構成 (/access/*, /filter/*, /backend/*, /operations/*) と
+              さらに旧い平坦 URL の両方を受ける。 */}
+          <Route path="/dashboard"          element={<Navigate to="/" replace />} />
+          <Route path="/deck"               element={<Navigate to="/" replace />} />
+          <Route path="/access/npub"        element={<Navigate to="/block" replace />} />
+          <Route path="/access/ip"          element={<Navigate to="/block" replace />} />
+          <Route path="/access/quarantine"  element={<Navigate to="/quarantine" replace />} />
+          <Route path="/access/post-policy" element={<Navigate to="/policy" replace />} />
+          <Route path="/filter/kind"        element={<Navigate to="/kind" replace />} />
+          <Route path="/filter/dsl"         element={<Navigate to="/dsl" replace />} />
+          <Route path="/filter/quick-ban"   element={<Navigate to="/dsl" replace />} />
+          <Route path="/filter/auto-guard"  element={<Navigate to="/auto-guard" replace />} />
+          <Route path="/backend/relays"     element={<Navigate to="/relays" replace />} />
+          <Route path="/backend/nip11"      element={<Navigate to="/nip11" replace />} />
+          <Route path="/operations/telemetry" element={<Navigate to="/system" replace />} />
+          <Route path="/operations/system"    element={<Navigate to="/system" replace />} />
+          <Route path="/npub"       element={<Navigate to="/block" replace />} />
+          <Route path="/ip-acl"     element={<Navigate to="/block" replace />} />
+          <Route path="/post-pol"   element={<Navigate to="/policy" replace />} />
+          <Route path="/simple-ban" element={<Navigate to="/dsl" replace />} />
+          <Route path="/settings"   element={<Navigate to="/system" replace />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

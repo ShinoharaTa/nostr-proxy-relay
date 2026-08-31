@@ -20,7 +20,7 @@ const QUICK_ACTION_LABEL: Record<QuickActionKind, string> = {
   disconnect_ip:      'Disconnect ip',
 };
 
-export function SystemPage() {
+export function SystemPanel() {
   const { t } = useI18n();
   const [info, setInfo] = useState<SystemInfoResponse | null>(null);
   const [crtOn, setCrtOn]   = useState(() => getUiPrefs().crtOverlay);

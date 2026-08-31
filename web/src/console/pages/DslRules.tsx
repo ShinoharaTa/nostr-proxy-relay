@@ -5,7 +5,7 @@ import { Filters as FiltersApi, Translate } from '../api';
 import type { FilterRow, DryRunResult } from '../api';
 import { useI18n } from '../i18n';
 
-export function DslRulesPage() {
+export function DslRulesPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();
