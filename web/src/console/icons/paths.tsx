@@ -41,6 +41,13 @@ export const ICON_PATHS = {
       <line x1="4" y1="18" x2="12" y2="18" />
     </>,
   },
+  /** 調査: 虫眼鏡 */
+  'nav-investigate': {
+    body: <>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <line x1="15.5" y1="15.5" x2="21" y2="21" />
+    </>,
+  },
   /** ブロック: 禁止記号 */
   'nav-block': {
     body: <>

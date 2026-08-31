@@ -21,6 +21,116 @@ pub fn routes() -> Router<ApiState> {
     Router::new()
         .route("/stats/actors", get(get_actors))
         .route("/actors/:actor_type/:id", get(get_actor_detail))
+        .route("/investigate", axum::routing::post(post_investigate))
+}
+
+/// イベント調査（Issue #31）。上流リレーへ問い合わせて集め、その場で解析して返す。
+/// **何も保存しない**（ストレージレス設計を崩さない）。
+async fn post_investigate(
+    State(s): State<ApiState>,
+    Json(req): Json<crate::investigate::InvestigateRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if req.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "ids / authors / kinds のいずれかを指定してください".to_string(),
+        ));
+    }
+
+    // 対象リレー: 未指定なら接続中のもの全部
+    let urls: Vec<String> = if req.relays.is_empty() {
+        s.relay_pool
+            .status_snapshot()
+            .await
+            .into_iter()
+            .filter(|r| r.enabled && r.status == "connected")
+            .map(|r| r.url)
+            .collect()
+    } else {
+        req.relays.clone()
+    };
+    if urls.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "接続中のバックエンドリレーがありません".to_string(),
+        ));
+    }
+
+    let (collected, stats) = crate::investigate::collect(
+        &s.relay_pool,
+        &urls,
+        req.to_filter(),
+        req.timeout_ms.unwrap_or(5000),
+    )
+    .await;
+
+    let analysis = crate::investigate::analyze(&collected, stats);
+
+    // ローカル相関: リレー応答に IP は含まれないので、自分の拒否ログと突き合わせて補う
+    let local = local_correlation(&s, &collected).await;
+
+    Ok(Json(serde_json::json!({
+        "analysis": analysis,
+        "local": local,
+        "relays_queried": urls,
+    })))
+}
+
+/// 収集したイベント ID / pubkey を自分の拒否ログと突き合わせ、IP と拒否理由を補完する。
+async fn local_correlation(
+    s: &ApiState,
+    collected: &[crate::investigate::CollectedEvent],
+) -> serde_json::Value {
+    if collected.is_empty() {
+        return serde_json::json!({ "matched": 0, "ips": [], "reasons": [] });
+    }
+    // SQLite のバインド数上限を避けるため件数を絞る
+    let ids: Vec<String> = collected.iter().take(500).map(|c| c.event.id.clone()).collect();
+    let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT ip_address, reason, COUNT(*) FROM event_rejection_logs          WHERE event_id IN ({placeholders}) GROUP BY ip_address, reason"
+    );
+    let mut q = sqlx::query_as::<_, (Option<String>, String, i64)>(&sql);
+    for id in &ids {
+        q = q.bind(id);
+    }
+    let rows = q.fetch_all(&s.pool).await.unwrap_or_default();
+
+    let mut ips: HashMap<String, i64> = HashMap::new();
+    let mut reasons: HashMap<String, i64> = HashMap::new();
+    let mut matched = 0i64;
+    for (ip, reason, count) in rows {
+        matched += count;
+        if let Some(ip) = ip {
+            *ips.entry(ip).or_default() += count;
+        }
+        *reasons.entry(reason).or_default() += count;
+    }
+
+    let mut ip_list: Vec<serde_json::Value> = ips
+        .into_iter()
+        .map(|(ip, count)| serde_json::json!({ "ip": ip, "count": count }))
+        .collect();
+    ip_list.sort_by_key(|v| -(v["count"].as_i64().unwrap_or(0)));
+    let mut reason_list: Vec<serde_json::Value> = reasons
+        .into_iter()
+        .map(|(reason, count)| serde_json::json!({ "reason": reason, "count": count }))
+        .collect();
+    reason_list.sort_by_key(|v| -(v["count"].as_i64().unwrap_or(0)));
+
+    // 単一 IP に集中していれば IP BAN を提案（ここだけはリレー応答からは絶対に出せない情報）
+    let single_ip = if ip_list.len() == 1 && matched >= 3 {
+        Some(ip_list[0]["ip"].clone())
+    } else {
+        None
+    };
+
+    serde_json::json!({
+        "matched": matched,
+        "ips": ip_list,
+        "reasons": reason_list,
+        "suggested_ip_ban": single_ip,
+    })
 }
 
 #[derive(Debug, Deserialize)]

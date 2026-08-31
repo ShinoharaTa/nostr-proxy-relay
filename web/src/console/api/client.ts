@@ -9,6 +9,8 @@ import type {
   ActorWindow,
   AppVersionResponse,
   AutoGuardResponse,
+  InvestigateRequest,
+  InvestigateResponse,
   IpActorDetail,
   IpActorRow,
   NpubActorDetail,
@@ -207,6 +209,12 @@ export const Actors = {
     request<IpActorDetail>(`/actors/ip/${encodeURIComponent(ip)}`, { signal: s }),
   npubDetail: (npub: string, s?: Sig) =>
     request<NpubActorDetail>(`/actors/npub/${encodeURIComponent(npub)}`, { signal: s }),
+};
+
+/** ──────── Investigate (Issue #31) ──────── */
+export const Investigate = {
+  run: (body: InvestigateRequest) =>
+    request<InvestigateResponse>('/investigate', { json: body }),
 };
 
 /** ──────── Auto Guard (spec §5.14) ──────── */

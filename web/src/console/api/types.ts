@@ -199,6 +199,52 @@ export interface NpubActorDetail {
   quarantine_entries: { id: number; scope: string; reason: string; expires_at: string | null }[];
 }
 
+/** イベント調査 (Issue #31) — `/api/investigate`。保存はせず上流に都度問い合わせる */
+export interface InvestigateRequest {
+  ids?: string[];
+  authors?: string[];
+  kinds?: number[];
+  since?: number;
+  limit?: number;
+  relays?: string[];
+  timeout_ms?: number;
+}
+
+export interface RelayStat { url: string; count: number; latency_ms: number; completed: boolean }
+export interface Counted { value: string; count: number }
+export interface TagStat { name: string; value: string; count: number; coverage: number }
+export interface TimingStat { span_secs: number; median_interval_secs: number; regularity: number }
+export interface Verdict {
+  kind: string;
+  confidence: string;
+  detail: string;
+  suggested_rule: unknown | null;
+}
+
+export interface Analysis {
+  fetched: number;
+  unique_events: number;
+  by_relay: RelayStat[];
+  authors_unique: number;
+  top_authors: Counted[];
+  content_unique: number;
+  top_contents: Counted[];
+  common_tags: TagStat[];
+  timing: TimingStat | null;
+  verdicts: Verdict[];
+}
+
+export interface InvestigateResponse {
+  analysis: Analysis;
+  local: {
+    matched: number;
+    ips: { ip: string; count: number }[];
+    reasons: { reason: string; count: number }[];
+    suggested_ip_ban: string | null;
+  };
+  relays_queried: string[];
+}
+
 /** 自動ガード (spec §5.14) — `/api/auto-guard` */
 export interface AutoGuardMute {
   content_hash: string;

@@ -26,6 +26,7 @@ Proxy Nostr Relay の機能仕様をまとめたドキュメントです。
    13. [管理 UI（管制コンソール / Live Event Stream）](#513-管理-ui管制コンソール--live-event-stream)
    14. [自動ガード（バースト / 同一イベント検知 + 時限 Quarantine）](#514-自動ガードバースト--同一イベント検知--時限-quarantine)
    15. [書き込みルーティング（broadcast npub / primary 限定送信）](#515-書き込みルーティングbroadcast-npub--primary-限定送信)
+   16. [イベント調査（上流問い合わせ + パターン解析）](#516-イベント調査上流問い合わせ--パターン解析)
 6. [評価順序（フィルタリングパイプライン）](#6-評価順序フィルタリングパイプライン)
 7. [用語集](#7-用語集)
 
@@ -639,6 +640,73 @@ ALTER TABLE relay_settings ADD COLUMN write_routing TEXT NOT NULL DEFAULT 'all'
 - `GET / PUT /api/post-policy` に `write_routing` を追加（または `PUT /api/relay-settings` 系に集約）
 - Backend Relays 画面: role / read / write 列は表示済みのため、write_routing トグルを追加
 - Npub 画面: broadcast フラグのトグルを追加
+
+---
+
+### 5.16 イベント調査（上流問い合わせ + パターン解析）
+
+#### 位置付け
+
+「このイベント群はどこから来て、同一人物か / 捨て鍵か / bot か」を**その場で調べる**機能。
+運用者が手で BAN を打つ前に、根拠と巻き添え範囲を確認するためのもの。
+
+#### 方針: 保存しない
+
+証跡テーブルを常時書き込む案は採らない。**調査を実行したタイミングで上流リレーへ REQ を投げ、
+集めたイベントをメモリ内で解析し、結果を返したら破棄する。**
+
+- 保存するものは無い（ストレージレス設計 §5.15 と整合）
+- content 本文も保存しない。取得はするが解析にのみ使う
+- 既存の `RelayPool` の常時接続をそのまま利用（`send` / `subscribe`）
+- **どのリレーが返したかが自然に分かる**（リレーごとに REQ を投げるため）
+
+#### 制約
+
+- **IP はリレー応答から得られない**（Nostr イベントに IP は含まれない）。
+  IP 相関は自分の `event_rejection_logs` と event_id で突き合わせて補完する
+- 上流が削除・期限切れにしたイベントは取得できない
+- 上流の limit / auth 要求の影響を受ける。EOSE かタイムアウト（既定 5 秒、上限 20 秒）で打ち切る
+- 1 リレーあたりの収集上限 1000 件
+
+#### 解析項目
+
+| 観点 | 内容 |
+|---|---|
+| リレー分布 | どのリレーが何件返したか / レイテンシ / EOSE 到達 |
+| 投稿者 | ユニーク pubkey 数と上位 |
+| 内容 | content の SHA-256 のユニーク数と上位 |
+| タグ | 網羅率 50% 以上の共通タグ |
+| 時間 | スパン・間隔の中央値・均一度（regularity）|
+| ローカル相関 | 拒否ログ側で観測した IP と拒否理由 |
+
+#### 判定（verdict）
+
+| kind | 条件 | 提案 |
+|---|---|---|
+| `single_npub` | 単一 pubkey が 80% 以上 | npub ルール |
+| `throwaway_keys` | pubkey がばらける（70%以上）が content は少数 | （IP 側で対処）|
+| `duplicate_content` | 同一 content が 50% 以上 | 自動ガードの重複検知 |
+| `common_tag` | 網羅率 90% 以上のタグ | tag_contains ルール |
+| `single_relay` | 1 つの上流だけが返した | — |
+| `machine_timing` | 間隔の 60% 以上が同一値かつ 60 秒以内 | — |
+| `single_ip`（ローカル相関）| 拒否ログの IP が 1 つに集中 | IP hard ban |
+
+正常なトラフィックでは**何も判定を出さない**（誤検知しないことをテストで担保）。
+
+#### API
+
+```
+POST /api/investigate
+{ "ids": [...], "authors": [...], "kinds": [...], "since": 0,
+  "limit": 200, "relays": [...], "timeout_ms": 5000 }
+```
+
+`ids` / `authors` / `kinds` のいずれか必須（空なら 400）。接続中のリレーが無ければ 503。
+
+#### ブロックへの接続
+
+判定が返す `suggested_rule` はそのまま Quick BAN / DSL に渡せる形。
+**適用は必ず人間の確認を経る**（原則「判断は人間、ツールは速さに全振り」）。
 
 ---
 

@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'deck', label: '管制卓', sub: '全体状況と要対応', to: '/',      icon: 'nav-deck' },
       { id: 'live', label: 'ライブ', sub: '流れているイベント', to: '/live', icon: 'nav-live' },
       { id: 'logs', label: 'ログ',   sub: '接続 / 拒否 / リレー', to: '/logs', icon: 'nav-log' },
+      { id: 'investigate', label: '調査', sub: '出所とパターンを解析', to: '/investigate', icon: 'nav-investigate' },
     ],
   },
   {
