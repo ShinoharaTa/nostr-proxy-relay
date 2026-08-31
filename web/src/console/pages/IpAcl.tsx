@@ -20,7 +20,7 @@ const MODE_BADGE: Record<IpAclMode, 'hard' | 'shadow' | 'whitelist' | 'neutral'>
   normal:     'neutral',
 };
 
-export function IpAclPage() {
+export function IpAclPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();

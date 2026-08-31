@@ -4,7 +4,7 @@ import { Telemetry as TelemetryApi } from '../api';
 import type { TelemetryStatusResponse, TelemetryTestResponse } from '../api';
 import { useI18n } from '../i18n';
 
-export function TelemetryPage() {
+export function TelemetryPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const [status, setStatus] = useState<TelemetryStatusResponse | null>(null);

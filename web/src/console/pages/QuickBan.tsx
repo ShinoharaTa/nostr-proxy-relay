@@ -11,7 +11,7 @@ const RULE_TYPES = [
   { id: 'tag',  label: 'TAG match' },
 ];
 
-export function QuickBanPage() {
+export function QuickBanPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();

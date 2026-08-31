@@ -16,9 +16,9 @@ export function Card({ title, bracket, actions, className, children, ...rest }: 
   return (
     <section className={cls} {...rest}>
       {(title || actions) && (
-        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--crt-gap-sm)' }}>
+        <header className="crt-card__head">
           {title && <h3 className="crt-card__title">{title}</h3>}
-          {actions && <div style={{ display: 'flex', gap: 8 }}>{actions}</div>}
+          {actions && <div className="crt-card__actions">{actions}</div>}
         </header>
       )}
       {children}

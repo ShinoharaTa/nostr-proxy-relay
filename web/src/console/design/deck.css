@@ -11,7 +11,7 @@
     linear-gradient(rgba(21, 13, 5, 0.88), rgba(21, 13, 5, 0.88)),
     repeating-radial-gradient(circle at 78% 160%, transparent 0 38px, rgba(42, 212, 200, 0.10) 39px 40px),
     repeating-linear-gradient(64deg, transparent 0 44px, rgba(42, 212, 200, 0.07) 45px 46px);
-  display: flex; align-items: center; gap: 22px; padding: 10px 18px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 22px; padding: 10px 18px; flex-wrap: wrap; min-width: 0;
 }
 .deck-band__title { font-size: 20px; color: var(--crt-accent); letter-spacing: 3px; text-shadow: var(--crt-text-glow); }
 .deck-band__title small { display: block; font-size: 9px; color: var(--crt-fg-dim); letter-spacing: 3px; }
@@ -21,7 +21,8 @@
 @keyframes deck-pulse { 50% { opacity: 0.4; } }
 
 /* ─ クアドラント ─ */
-.deck-quad { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.deck-quad { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; min-width: 0; }
+.deck-quad > * { min-width: 0; }
 @media (max-width: 1100px) { .deck-quad { grid-template-columns: 1fr; } }
 
 /* ─ LIVE INTERCEPT (カメラフィード風) ─ */

@@ -86,6 +86,16 @@ export const consoleText = {
       emptyHint: 'QUARANTINE で時限ミュートを追加できます',
       autoGuardBadge: '自動ガードによる時限 Quarantine です。誤検知なら即解除できます。',
     },
+    block: {
+      title: 'ブロック',
+      npubHint: '公開鍵単位で止めます。上のランキングは拒否の多い順。BAN は恒久、一時的に止めるなら「一時停止」を使ってください。',
+      ipHint: 'IP / CIDR 単位で止めます。HARD BAN は接続を拒否、SHADOW BAN は接続を受けつつ投稿を無効化します。',
+    },
+    rules: {
+      title: 'DSL ルール',
+      dslHint: '条件式でイベントを弾きます。POST（投稿）と backend（配信）のどちらに適用するかを選べます。',
+      quickHint: 'GUI で組める簡易ルールです。npub / kind / タグで指定でき、DSL に変換して確認できます。',
+    },
     deck: {
       liveEmpty: 'イベント待機中…',
       stackEmpty: '対象期間にアクターがいません',
@@ -279,6 +289,16 @@ export const consoleText = {
       created: 'Quarantined',
       emptyHint: 'Add a timed mute with QUARANTINE',
       autoGuardBadge: 'Timed quarantine issued by Auto Guard. Release immediately if it is a false positive.',
+    },
+    block: {
+      title: 'Block',
+      npubHint: 'Block by public key. The ranking above is sorted by rejections. BAN is permanent — use Quarantine for a temporary stop.',
+      ipHint: 'Block by IP / CIDR. HARD BAN rejects the connection; SHADOW BAN accepts it but silently voids the posts.',
+    },
+    rules: {
+      title: 'DSL Rules',
+      dslHint: 'Reject events with a condition expression. Choose whether it applies to POST, backend delivery, or both.',
+      quickHint: 'Simple GUI-built rules by npub / kind / tag. You can preview the equivalent DSL.',
     },
     deck: {
       liveEmpty: 'Waiting for events…',

@@ -14,6 +14,12 @@
   min-height: 100vh;
   grid-template-rows: auto 1fr;
 }
+/* グリッド／フレックスの子は既定で min-content 未満に縮まないため、
+   中に幅の広い要素が 1 つあるとシェルごと横に伸び、画面全体が横スクロールする。
+   min-width: 0 で縮小を許可し、はみ出しはその要素の中だけで解決させる。 */
+.crt-shell__top,
+.crt-shell__main { min-width: 0; }
+.crt-shell__main > * { min-width: 0; }
 
 @media (min-width: 1024px) {
   .crt-shell {
@@ -123,53 +129,82 @@
   margin-bottom: 2px;
   text-transform: uppercase;
 }
-.crt-side__group { margin-bottom: var(--crt-gap-md); }
+/* ── サイドナビ (Issue #29) ──
+   旧実装は見出しと項目が同色・1px 差・両方 CAPS で階層が見えなかった。
+   「見出し = 小さく暗く広い字間」「項目 = 大きく明るく通常ケース」で差を作る。 */
+.crt-side__group { margin-bottom: var(--crt-gap-lg); }
 .crt-side__group-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  color: var(--crt-fg-dim);
+  gap: 7px;
+  padding: 0 14px 5px;
+  /* 項目より暗く・小さく。見出しは「区切り」であって選択肢ではない */
+  color: #7a6448;
   font-family: var(--crt-font-display);
   font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 9px;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
 }
 .crt-side__items {
   list-style: none;
   margin: 0;
-  padding: 0 0 0 6px;
+  padding: 0;
 }
 .crt-side__item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  color: var(--crt-fg-dim);
+  gap: 10px;
+  padding: 7px 14px;
+  /* 項目は本文色。ここが読ませたい情報 */
+  color: var(--crt-fg);
   font-family: var(--crt-font-display);
   font-weight: 500;
-  font-size: 13px;
-  letter-spacing: 0.02em;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
   border-left: 2px solid transparent;
   text-decoration: none;
   position: relative;
 }
-.crt-side__item:hover { color: var(--crt-fg); text-decoration: none; }
+.crt-side__item:hover {
+  color: var(--crt-accent);
+  background: rgba(255, 140, 42, 0.07);
+  text-decoration: none;
+}
+.crt-side__item .crt-icon { color: var(--crt-fg-dim); flex: none; }
+.crt-side__item:hover .crt-icon { color: var(--crt-accent); }
 .crt-side__item--active {
   color: var(--crt-accent);
   border-left-color: var(--crt-accent);
   font-weight: 700;
-  background: transparent;
+  background: rgba(255, 140, 42, 0.1);
 }
-.crt-side__item--active::before {
-  content: '>>';
-  position: absolute;
-  left: -2px;
-  color: var(--crt-accent);
-  font-size: 10px;
-  font-weight: 700;
+.crt-side__item--active .crt-icon { color: var(--crt-accent); }
+/* 主ラベルの下に置く英語名・一言説明 */
+.crt-side__item-text { display: flex; flex-direction: column; min-width: 0; }
+.crt-side__item-sub {
   font-family: var(--crt-font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--crt-fg-dim);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crt-side__item--active .crt-side__item-sub { color: var(--crt-accent-2); }
+/* 未対応件数バッジ */
+.crt-side__badge {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--crt-font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--crt-danger-text);
+  background: rgba(255, 59, 48, 0.14);
+  border: 1px solid rgba(255, 59, 48, 0.45);
+  padding: 0 5px;
 }
 
 /* ===== BottomTab (mobile) ===== */

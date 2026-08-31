@@ -26,7 +26,7 @@ const TABS = [
  *
  * docs/ui_redesign_ja.md §5.8
  */
-export function NpubPage() {
+export function NpubPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();
