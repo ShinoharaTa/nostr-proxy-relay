@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Button, Pill, DataList, type Column, Drawer, Tag, useToast } from '../primitives';
+import { Card, Button, Pill, DataList, type Column, Drawer, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Actors, Quarantine as QApi, Safelist } from '../api';
 import type { ActorWindow, NpubActorRow, SafelistRow } from '../api';
@@ -29,6 +29,7 @@ const TABS = [
 export function NpubPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<SubTab>('allow');
   const [rows, setRows] = useState<SafelistRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -41,12 +42,12 @@ export function NpubPage() {
   useEffect(() => { reload(); }, []);
 
   const quickBan = async (npub: string) => {
-    if (!confirm(t.deck.confirmNpubBan(npub))) return;
+    if (!(await confirm({ ...t.deck.confirmNpubBan(npub), destructive: true }))) return;
     try { await Safelist.ban(npub); toast.push({ variant: 'ok', message: t.npub.banned }); reload(); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.opFailed((e as Error).message) }); }
   };
   const quickQuarantine = async (npub: string) => {
-    if (!confirm(t.deck.confirmQuarantine(npub))) return;
+    if (!(await confirm({ ...t.deck.confirmQuarantine(npub), destructive: true }))) return;
     try {
       await QApi.create({ npub, scope: 'post', reason: 'from top rejected', duration_secs: 24 * 3600 });
       toast.push({ variant: 'ok', message: t.quarantine.created });
@@ -62,7 +63,7 @@ export function NpubPage() {
   }, [rows, tab]);
 
   const remove = async (npub: string) => {
-    if (!confirm(t.npub.confirmDelete(npub))) return;
+    if (!(await confirm({ ...t.npub.confirmDelete(npub), destructive: true }))) return;
     try {
       await Safelist.remove(npub);
       toast.push({ variant: 'ok', message: t.common.deleted });

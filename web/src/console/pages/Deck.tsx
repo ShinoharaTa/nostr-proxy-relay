@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Button, Pill, Tag, useToast } from '../primitives';
+import { Card, Button, Pill, Tag, useConfirm, useToast } from '../primitives';
 import { Actors, AutoGuard as GuardApi, IpAcl, Quarantine as QApi, Relays, Safelist, Stats } from '../api';
 import type { ActorWindow, IpActorRow, LiveEvent, NpubActorRow, QuarantineRow } from '../api';
 import { usePolling } from '../utils/usePolling';
@@ -19,6 +19,7 @@ const WINDOWS: { id: ActorWindow; label: string }[] = [
 export function DeckPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [targetBy, setTargetBy] = useState<'ip' | 'npub'>('ip');
   const [window_, setWindow] = useState<ActorWindow>('1h');
 
@@ -80,7 +81,7 @@ export function DeckPage() {
 
   /* ── アクション ── */
   const banIp = async (ip: string, mode: 'hard_ban' | 'shadow_ban') => {
-    if (!confirm(t.deck.confirmIp(mode, ip))) return;
+    if (!(await confirm({ ...t.deck.confirmIp(mode, ip), destructive: true }))) return;
     try {
       await IpAcl.create({ ip_address: ip, mode, memo: 'deck quick action' });
       toast.push({ variant: 'ok', message: t.common.applied });
@@ -88,7 +89,7 @@ export function DeckPage() {
     } catch (e) { toast.push({ variant: 'alert', message: t.common.opFailed((e as Error).message) }); }
   };
   const banNpub = async (npub: string) => {
-    if (!confirm(t.deck.confirmNpubBan(npub))) return;
+    if (!(await confirm({ ...t.deck.confirmNpubBan(npub), destructive: true }))) return;
     try {
       await Safelist.ban(npub);
       toast.push({ variant: 'ok', message: t.npub.banned });
@@ -96,7 +97,7 @@ export function DeckPage() {
     } catch (e) { toast.push({ variant: 'alert', message: t.common.opFailed((e as Error).message) }); }
   };
   const quarantineNpub = async (npub: string) => {
-    if (!confirm(t.deck.confirmQuarantine(npub))) return;
+    if (!(await confirm({ ...t.deck.confirmQuarantine(npub), destructive: true }))) return;
     try {
       await QApi.create({ npub, scope: 'post', reason: 'deck quick action', duration_secs: 24 * 3600 });
       toast.push({ variant: 'ok', message: t.quarantine.created });

@@ -8,6 +8,7 @@ export { Pill } from './Pill';
 export { DataList, type Column } from './DataList';
 export { ToastHost, useToast } from './Toast';
 export { Modal } from './Modal';
+export { ConfirmHost, useConfirm, type ConfirmOptions } from './ConfirmHost';
 export { Drawer } from './Drawer';
 export { EmptyState } from './EmptyState';
 export { LoadingState } from './LoadingState';

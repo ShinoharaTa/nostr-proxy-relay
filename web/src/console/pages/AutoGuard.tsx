@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, DataList, type Column, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Tag, useConfirm, useToast } from '../primitives';
 import { AutoGuard as GuardApi } from '../api';
 import type { AutoGuardMute, AutoGuardResponse, PutAutoGuardBody } from '../api';
 import { useI18n } from '../i18n';
@@ -13,6 +13,7 @@ import { useI18n } from '../i18n';
 export function AutoGuardPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [data, setData] = useState<AutoGuardResponse | null>(null);
   const [form, setForm] = useState<PutAutoGuardBody | null>(null);
   const [saving, setSaving] = useState(false);
@@ -59,7 +60,7 @@ export function AutoGuardPage() {
   };
 
   const clearMutes = async () => {
-    if (!confirm(t.autoGuard.confirmClear)) return;
+    if (!(await confirm({ ...t.autoGuard.confirmClear, destructive: true }))) return;
     try {
       const res = await GuardApi.clearContentMutes();
       toast.push({ variant: 'ok', message: t.autoGuard.cleared(res.cleared) });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Modal, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Modal, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Filters as FiltersApi, Translate } from '../api';
 import type { FilterRow, DryRunResult } from '../api';
@@ -8,6 +8,7 @@ import { useI18n } from '../i18n';
 export function DslRulesPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<FilterRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<FilterRow | null>(null);
@@ -17,7 +18,7 @@ export function DslRulesPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm(t.common.confirmDelete)) return;
+    if (!(await confirm({ ...t.common.confirmDelete, destructive: true }))) return;
     try { await FiltersApi.remove(id); toast.push({ variant: 'ok', message: t.common.deleted }); reload(); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };

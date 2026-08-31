@@ -5,6 +5,7 @@ import './shell/shell.css';
 import { AppShell } from './shell/AppShell';
 import { ConsoleI18nProvider } from './i18n';
 import { ToastHost } from './primitives/Toast';
+import { ConfirmHost } from './primitives/ConfirmHost';
 import { Showroom } from './pages/Showroom';
 import { Dashboard } from './pages/Dashboard';
 import { DeckPage } from './pages/Deck';
@@ -33,6 +34,7 @@ export function ConsoleApp() {
   return (
     <ConsoleI18nProvider>
     <ToastHost>
+      <ConfirmHost>
       <AppShell>
         <Routes>
           {/* OVERVIEW */}
@@ -77,6 +79,7 @@ export function ConsoleApp() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
+      </ConfirmHost>
     </ToastHost>
     </ConsoleI18nProvider>
   );

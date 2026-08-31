@@ -48,7 +48,7 @@ export function persistLang(lang: ConsoleLang): void {
 export const consoleText = {
   ja: {
     common: {
-      confirmDelete: '削除しますか？',
+      confirmDelete: { title: '削除しますか？', body: 'この操作は取り消せません。', confirmLabel: '削除する' },
       deleted: '削除しました',
       deleteFailed: (msg: string) => `削除失敗: ${msg}`,
       failed: (msg: string) => `失敗: ${msg}`,
@@ -76,7 +76,11 @@ export const consoleText = {
       emptyHint: 'まだイベントが届いていません',
     },
     quarantine: {
-      confirmRelease: (npub: string) => `${npub} の隔離を解除しますか？`,
+      confirmRelease: (npub: string) => ({
+        title: '隔離を解除しますか？',
+        body: `${npub} の Quarantine を即時解除し、POST を再び受け付けます。`,
+        confirmLabel: '解除する',
+      }),
       released: '解除しました',
       created: '隔離しました',
       emptyHint: 'QUARANTINE で時限ミュートを追加できます',
@@ -89,12 +93,23 @@ export const consoleText = {
       permanentBan: '恒久BAN',
       falsePositive: '誤検知解除',
       rateWhy: (n: number, w: string) => `拒否 ${n} 件 / ${w} — 未対処`,
-      confirmIp: (mode: string, ip: string) =>
-        mode === 'hard_ban'
-          ? `${ip} を HARD BAN します。既存接続は切断され、以後の接続を拒否します。よろしいですか？`
-          : `${ip} を SHADOW BAN します。接続は受理しつつ投稿を無効化します。よろしいですか？`,
-      confirmNpubBan: (npub: string) => `${npub} を恒久 BAN します。よろしいですか？`,
-      confirmQuarantine: (npub: string) => `${npub} を 24 時間 Quarantine（POST 停止）します。よろしいですか？`,
+      confirmIp: (mode: string, ip: string) => ({
+        title: mode === 'hard_ban' ? 'HARD BAN を実行しますか？' : 'SHADOW BAN を実行しますか？',
+        body: mode === 'hard_ban'
+          ? `${ip} からの既存接続を強制切断し、以後の接続も拒否します。`
+          : `${ip} は接続を受理しつつ、投稿を無効化します（相手には成功したように見えます）。`,
+        confirmLabel: mode === 'hard_ban' ? 'HARD BAN する' : 'SHADOW BAN する',
+      }),
+      confirmNpubBan: (npub: string) => ({
+        title: '恒久 BAN を実行しますか？',
+        body: `${npub} の投稿を恒久的に拒否します。解除は NPUB 画面から行えます。`,
+        confirmLabel: 'BAN する',
+      }),
+      confirmQuarantine: (npub: string) => ({
+        title: '24 時間 Quarantine しますか？',
+        body: `${npub} の POST を 24 時間停止します。期限が来ると自動で解除されます。`,
+        confirmLabel: 'QUARANTINE する',
+      }),
     },
     autoGuard: {
       intro: '検知は自動、恒久制裁はしません。発火時は時限 Quarantine を自動発行するだけで、失効後は自動復帰します。IP whitelist / safelist フラグ持ちの npub には一切発火しません。',
@@ -112,7 +127,11 @@ export const consoleText = {
       mutesTitle: 'アクティブな content mute',
       mutesEmpty: 'アクティブな content mute はありません',
       clearMutes: '全クリア',
-      confirmClear: 'content mute を全てクリアしますか？（誤検知時の緊急解除）',
+      confirmClear: {
+        title: 'content mute を全てクリアしますか？',
+        body: '自動ガードが一時ミュートしている内容をすべて解除します。誤検知時の緊急操作です。',
+        confirmLabel: 'クリアする',
+      },
       cleared: (n: number) => `${n} 件クリアしました`,
       savedOn: '自動ガードを有効化しました',
       savedOff: '自動ガードを無効化しました',
@@ -123,10 +142,14 @@ export const consoleText = {
       hardBanBody: (ip: string) => (
         <p>{ip} を Hard BAN します。<strong>該当 IP の既存 WS 接続は強制切断</strong>され、以後の接続も拒否します。</p>
       ),
-      hardBanNote: (when: string) => `CIDR の場合、範囲内の全てのセッションが切断されます。実行は記録されます (${when} 予定)。`,
+      hardBanNote: 'CIDR を指定した場合、範囲内の全セッションが切断されます。実行内容は接続ログに記録されます。',
     },
     npub: {
-      confirmDelete: (npub: string) => `${npub} を削除しますか？`,
+      confirmDelete: (npub: string) => ({
+        title: 'safelist から削除しますか？',
+        body: `${npub} のエントリを削除します。allow / broadcast などのフラグも失われます。`,
+        confirmLabel: '削除する',
+      }),
       banned: 'BAN しました',
       unbanned: 'unban しました',
       emptyHint: 'ADD で公開鍵を追加してください',
@@ -145,7 +168,11 @@ export const consoleText = {
       dslPreviewNote: 'この Quick BAN ルールを DSL に変換するとこうなります。',
     },
     backend: {
-      confirmDelete: (url: string) => `backend relay "${url}" を削除しますか？`,
+      confirmDelete: (url: string) => ({
+        title: 'backend relay を削除しますか？',
+        body: `${url} を構成から外します。SAVE で確定するまで実際の接続は変わりません。`,
+        confirmLabel: '削除する',
+      }),
       updated: 'backend relays を更新しました',
       duplicateUrl: 'すでに登録済みの URL です',
       queued: '追加候補に積みました。SAVE で確定。',
@@ -215,7 +242,7 @@ export const consoleText = {
   },
   en: {
     common: {
-      confirmDelete: 'Delete this entry?',
+      confirmDelete: { title: 'Delete this entry?', body: 'This action cannot be undone.', confirmLabel: 'DELETE' },
       deleted: 'Deleted',
       deleteFailed: (msg: string) => `Delete failed: ${msg}`,
       failed: (msg: string) => `Failed: ${msg}`,
@@ -243,7 +270,11 @@ export const consoleText = {
       emptyHint: 'No events received yet',
     },
     quarantine: {
-      confirmRelease: (npub: string) => `Release quarantine for ${npub}?`,
+      confirmRelease: (npub: string) => ({
+        title: 'Release quarantine?',
+        body: `${npub} is released immediately and can POST again.`,
+        confirmLabel: 'RELEASE',
+      }),
       released: 'Released',
       created: 'Quarantined',
       emptyHint: 'Add a timed mute with QUARANTINE',
@@ -256,12 +287,23 @@ export const consoleText = {
       permanentBan: 'PERMANENT BAN',
       falsePositive: 'FALSE POSITIVE',
       rateWhy: (n: number, w: string) => `${n} rejections / ${w} — unhandled`,
-      confirmIp: (mode: string, ip: string) =>
-        mode === 'hard_ban'
-          ? `Hard-ban ${ip}? Existing connections are disconnected and future ones rejected.`
-          : `Shadow-ban ${ip}? Connections are accepted but posts are silently voided.`,
-      confirmNpubBan: (npub: string) => `Permanently ban ${npub}?`,
-      confirmQuarantine: (npub: string) => `Quarantine ${npub} for 24 hours (block POST)?`,
+      confirmIp: (mode: string, ip: string) => ({
+        title: mode === 'hard_ban' ? 'Execute HARD BAN?' : 'Execute SHADOW BAN?',
+        body: mode === 'hard_ban'
+          ? `Existing connections from ${ip} are force-disconnected and future ones rejected.`
+          : `${ip} stays connected but its posts are silently voided (it looks successful to them).`,
+        confirmLabel: mode === 'hard_ban' ? 'HARD BAN' : 'SHADOW BAN',
+      }),
+      confirmNpubBan: (npub: string) => ({
+        title: 'Permanently ban this npub?',
+        body: `Posts from ${npub} will be rejected. You can undo this from the NPUB page.`,
+        confirmLabel: 'BAN',
+      }),
+      confirmQuarantine: (npub: string) => ({
+        title: 'Quarantine for 24 hours?',
+        body: `POSTs from ${npub} are blocked for 24 hours, then automatically released.`,
+        confirmLabel: 'QUARANTINE',
+      }),
     },
     autoGuard: {
       intro: 'Detection is automatic; punishment never is permanent. On trigger it only issues a timed quarantine that expires on its own. Npubs with IP whitelist / safelist flags are always exempt.',
@@ -279,7 +321,11 @@ export const consoleText = {
       mutesTitle: 'Active content mutes',
       mutesEmpty: 'No active content mutes',
       clearMutes: 'CLEAR ALL',
-      confirmClear: 'Clear all content mutes? (emergency release for false positives)',
+      confirmClear: {
+        title: 'Clear all content mutes?',
+        body: 'Releases every content currently muted by Auto Guard. Emergency action for false positives.',
+        confirmLabel: 'CLEAR',
+      },
       cleared: (n: number) => `Cleared ${n} mute(s)`,
       savedOn: 'Auto Guard enabled',
       savedOff: 'Auto Guard disabled',
@@ -290,10 +336,14 @@ export const consoleText = {
       hardBanBody: (ip: string) => (
         <p>Hard-ban {ip}. <strong>Existing WS connections from this IP are force-disconnected</strong> and future connections are rejected.</p>
       ),
-      hardBanNote: (when: string) => `For CIDR, every session in the range is disconnected. The action is logged (scheduled ${when}).`,
+      hardBanNote: 'For a CIDR, every session in the range is disconnected. The action is recorded in the connection log.',
     },
     npub: {
-      confirmDelete: (npub: string) => `Delete ${npub}?`,
+      confirmDelete: (npub: string) => ({
+        title: 'Remove from safelist?',
+        body: `The entry for ${npub} is deleted, including its allow / broadcast flags.`,
+        confirmLabel: 'DELETE',
+      }),
       banned: 'Banned',
       unbanned: 'Unbanned',
       emptyHint: 'Use ADD to register a public key',
@@ -312,7 +362,11 @@ export const consoleText = {
       dslPreviewNote: 'This Quick BAN rule translates to the following DSL.',
     },
     backend: {
-      confirmDelete: (url: string) => `Delete backend relay "${url}"?`,
+      confirmDelete: (url: string) => ({
+        title: 'Delete backend relay?',
+        body: `${url} is removed from the configuration. Nothing changes until you press SAVE.`,
+        confirmLabel: 'DELETE',
+      }),
       updated: 'Backend relays updated',
       duplicateUrl: 'This URL is already registered',
       queued: 'Queued for addition. Press SAVE to apply.',

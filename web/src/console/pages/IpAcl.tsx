@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Modal, ModeBadge, Pill, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Modal, ModeBadge, Pill, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Actors, IpAcl as IpAclApi } from '../api';
 import type { ActorWindow, IpAccessControlRow, IpAclMode, IpActorRow } from '../api';
@@ -23,6 +23,7 @@ const MODE_BADGE: Record<IpAclMode, 'hard' | 'shadow' | 'whitelist' | 'neutral'>
 export function IpAclPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<IpAccessControlRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<IpAccessControlRow | null>(null);
@@ -47,11 +48,11 @@ export function IpAclPage() {
       }
     };
     if (mode === 'hard_ban') setConfirmHardBan({ ip, cb: doApply });
-    else if (confirm(t.deck.confirmIp('shadow_ban', ip))) doApply();
+    else confirm({ ...t.deck.confirmIp('shadow_ban', ip), destructive: true }).then((ok) => { if (ok) doApply(); });
   };
 
   const remove = async (id: number) => {
-    if (!confirm(t.common.confirmDelete)) return;
+    if (!(await confirm({ ...t.common.confirmDelete, destructive: true }))) return;
     try { await IpAclApi.remove(id); reload(); toast.push({ variant: 'ok', message: t.common.deleted }); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.deleteFailed((e as Error).message) }); }
   };
@@ -176,7 +177,7 @@ export function IpAclPage() {
         }
       >
         {t.ipacl.hardBanBody(confirmHardBan?.ip ?? '')}
-        <p className="muted">{t.ipacl.hardBanNote(ago(new Date().toISOString()))}</p>
+        <p className="muted">{t.ipacl.hardBanNote}</p>
       </Modal>
     </div>
   );

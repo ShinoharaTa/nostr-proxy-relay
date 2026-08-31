@@ -21,9 +21,9 @@
 
   /* ─ Foreground (ウォームアイボリー: 純白は使わない) ─
      fg-dim はラベル用 (bg 上 ≥6:1)。fg-muted はデータ本文の弱調用 (≥8:1)。 */
-  --crt-fg:        #f2e5d5;
-  --crt-fg-muted:  #c2a888;
-  --crt-fg-dim:    #8a7358;
+  --crt-fg:        #f2e5d5;   /* 本文        15.3:1 */
+  --crt-fg-muted:  #c2a888;   /* 弱調         8.3:1 */
+  --crt-fg-dim:    #a38b6b;   /* ラベル       5.8:1 (旧 #8a7358 は 4.21:1 で AA 未達) */
 
   /* ─ Semantic colors (God's Eye) ─ */
   --crt-accent:    #ff8c2a;            /* トラッキングオレンジ */
@@ -34,8 +34,10 @@
   --crt-danger-text: #ff6a57;          /* 小サイズ文字用の明るい danger (AA 確保) */
 
   /* ─ Borders (焦げ茶) ─ */
-  --crt-border:    #3a2a16;
-  --crt-border-strong: #6b4a24;
+  --crt-border:    #3a2a16;   /* 区切り線（非インタラクティブ） */
+  /* 入力欄・ボタンの枠は WCAG 1.4.11 (非テキスト 3:1) を満たす必要がある。
+     旧 #6b4a24 は 2.53:1 で未達だった。 */
+  --crt-border-strong: #8a612e;
 
   /* ─ Typography (Helvetica + IBM Plex Mono + VT323) ─ */
   --crt-font-display: 'Arimo', 'Helvetica Neue', Helvetica, Arial, sans-serif;

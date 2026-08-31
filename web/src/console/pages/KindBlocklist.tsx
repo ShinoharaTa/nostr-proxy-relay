@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { KindBlocklist as KindApi } from '../api';
 import type { ReqKindBlacklistRow } from '../api';
@@ -8,6 +8,7 @@ import { useI18n } from '../i18n';
 export function KindBlocklistPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<ReqKindBlacklistRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -15,7 +16,7 @@ export function KindBlocklistPage() {
   useEffect(() => { reload(); }, []);
 
   const remove = async (id: number) => {
-    if (!confirm(t.common.confirmDelete)) return;
+    if (!(await confirm({ ...t.common.confirmDelete, destructive: true }))) return;
     try { await KindApi.remove(id); toast.push({ variant: 'ok', message: t.common.deleted }); reload(); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };

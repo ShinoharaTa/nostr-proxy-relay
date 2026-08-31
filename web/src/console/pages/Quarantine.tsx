@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Button, DataList, type Column, Drawer, Tag, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Drawer, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Quarantine as QApi } from '../api';
 import type { QuarantineRow, QuarantineScope } from '../api';
@@ -24,6 +24,7 @@ const SCOPES: { id: QuarantineScope; label: string }[] = [
 export function QuarantinePage() {
   const { t } = useI18n();
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<QuarantineRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -31,7 +32,7 @@ export function QuarantinePage() {
   useEffect(() => { reload(); }, []);
 
   const release = async (id: number, npub: string) => {
-    if (!confirm(t.quarantine.confirmRelease(npub))) return;
+    if (!(await confirm(t.quarantine.confirmRelease(npub)))) return;
     try { await QApi.remove(id); toast.push({ variant: 'ok', message: t.quarantine.released }); reload(); }
     catch (e) { toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) }); }
   };
