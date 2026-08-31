@@ -10,6 +10,7 @@ import { Showroom } from './pages/Showroom';
 import { DeckPage } from './pages/Deck';
 import { LiveEvents } from './pages/LiveEvents';
 import { LogsPage } from './pages/Logs';
+import { InvestigatePage } from './pages/Investigate';
 import { BackendRelays } from './pages/BackendRelays';
 import { Nip11Editor } from './pages/Nip11Editor';
 import { PostPolicyPage } from './pages/PostPolicy';
@@ -37,6 +38,7 @@ export function ConsoleApp() {
           <Route path="/"     element={<DeckPage />} />
           <Route path="/live" element={<LiveEvents />} />
           <Route path="/logs" element={<LogsPage />} />
+          <Route path="/investigate" element={<InvestigatePage />} />
 
           {/* とめる */}
           <Route path="/block"      element={<BlockPage />} />

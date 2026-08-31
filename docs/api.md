@@ -101,6 +101,7 @@ Aggregated status used by the LP. 1-second cache. **Never includes npubs or IPs.
 - `DELETE /api/auto-guard/content-mutes`  Clear all content mutes (emergency release for false positives)
 - `GET    /api/stats/actors?by=ip|npub&window=1h|24h|7d|all&sort=...&limit=`  Actor aggregation (sorted desc + moderation status join, ui_redesign §14.2)
 - `GET    /api/actors/:type/:id`          Actor inspector detail (type: `ip` / `npub`)
+- `POST   /api/investigate`               Investigate events (queries upstream relays, analyses patterns; **stores nothing**, spec §5.16)
 
 ### Operations
 

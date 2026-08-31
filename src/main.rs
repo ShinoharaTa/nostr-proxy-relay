@@ -9,6 +9,7 @@ mod event_counter;
 mod event_stream;
 mod filter;
 mod guard;
+mod investigate;
 mod log_cleaner;
 mod metrics;
 mod nostr;

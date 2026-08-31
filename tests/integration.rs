@@ -430,3 +430,40 @@ async fn actors_api_aggregates_and_joins_status() {
     assert_eq!(v["quarantine_entries"].as_array().unwrap().len(), 1);
     assert!(v["safelist"].is_null());
 }
+
+#[tokio::test]
+async fn investigate_api_validates_and_reports_no_relay() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin").await.unwrap();
+    let app = setup_api_router(&pool).await;
+    let auth_header = basic_header("admin", "admin");
+
+    let post = |body: serde_json::Value| {
+        let app = app.clone();
+        let auth_header = auth_header.clone();
+        async move {
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/investigate")
+                        .header("authorization", auth_header)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            resp.status()
+        }
+    };
+
+    // 条件が空なら 400
+    assert_eq!(post(serde_json::json!({})).await, StatusCode::BAD_REQUEST);
+
+    // 条件はあるがバックエンドリレー未設定なら 503（保存も副作用も無い）
+    assert_eq!(
+        post(serde_json::json!({ "ids": ["abc123"] })).await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
