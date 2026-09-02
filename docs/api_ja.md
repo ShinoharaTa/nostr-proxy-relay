@@ -101,7 +101,7 @@ LP に表示する集計ステータス。1 秒キャッシュ。`npub` / `IP` �
 - `DELETE /api/auto-guard/content-mutes`  content mute を全クリア（誤検知時の緊急解除）
 - `GET    /api/stats/actors?by=ip|npub&window=1h|24h|7d|all&sort=...&limit=`  アクター集約（多い順 + 対処状態 JOIN、ui_redesign §14.2）
 - `GET    /api/actors/:type/:id`          アクターインスペクタ用詳細（type: `ip` / `npub`）
-- `POST   /api/investigate`               イベント調査（上流へ REQ → パターン解析。**何も保存しない**、spec §5.16）
+- `POST   /api/investigate`               イベント調査（上流へ REQ → パターン解析。**何も保存しない**、spec §5.16）。入力は hex / NIP-19 両対応（nsec は 400）。`refs` で反応収集、`until` でページング
 
 ### Operations
 

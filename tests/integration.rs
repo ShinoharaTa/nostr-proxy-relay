@@ -462,8 +462,37 @@ async fn investigate_api_validates_and_reports_no_relay() {
     assert_eq!(post(serde_json::json!({})).await, StatusCode::BAD_REQUEST);
 
     // 条件はあるがバックエンドリレー未設定なら 503（保存も副作用も無い）
+    // hex 64 桁は正規化を通過する
+    let hex_id = "aebe917a224983504fd0f54a71cbb0b3ba62e8f83b87c9e17dfa2c04a2d4b4f1";
     assert_eq!(
-        post(serde_json::json!({ "ids": ["abc123"] })).await,
+        post(serde_json::json!({ "ids": [hex_id] })).await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+
+    // NIP-19 正規化: nsec は接続確認より前に 400 で拒否される（#35 P1）
+    assert_eq!(
+        post(serde_json::json!({
+            "authors": ["nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5"]
+        })).await,
+        StatusCode::BAD_REQUEST
+    );
+    // npub は authors として通る（リレー無しなので 503 まで到達 = 正規化成功）
+    assert_eq!(
+        post(serde_json::json!({
+            "authors": ["npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg"]
+        })).await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    // 型違い（authors に note1）は 400
+    let hrp = bech32::Hrp::parse("note").unwrap();
+    let note = bech32::encode::<bech32::Bech32>(hrp, &hex::decode(hex_id).unwrap()).unwrap();
+    assert_eq!(
+        post(serde_json::json!({ "authors": [note.clone()] })).await,
+        StatusCode::BAD_REQUEST
+    );
+    // refs に note1 は通る
+    assert_eq!(
+        post(serde_json::json!({ "refs": [note] })).await,
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
