@@ -1,0 +1,18 @@
+[Unit]
+Description=Nostr Proxy Relay (green / dev slot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/relay/green
+EnvironmentFile=/srv/relay/green/env
+ExecStart=/srv/relay/green/proxy-nostr-relay
+Restart=always
+RestartSec=3
+# ログは journald へ（ファイルログは LOG_DIR 側で別途ローテート）
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

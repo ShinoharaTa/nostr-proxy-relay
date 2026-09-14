@@ -92,6 +92,22 @@ fn spawn_log_cleanup_task(log_dir: PathBuf, retention: Duration) {
     });
 }
 
+/// bind アドレスを決める（Issue #22 / #39）。
+/// 既定は後方互換のため `127.0.0.1:8080`。`BIND_ADDR` で上書きできる。
+/// Blue/Green で 2 スロットを別ポートに分けるために必要。
+/// 不正値は警告して既定にフォールバックする（起動失敗より継続を優先）。
+fn resolve_bind_addr() -> SocketAddr {
+    const DEFAULT: &str = "127.0.0.1:8080";
+    let raw = std::env::var("BIND_ADDR").unwrap_or_else(|_| DEFAULT.to_string());
+    match raw.parse::<SocketAddr>() {
+        Ok(addr) => addr,
+        Err(e) => {
+            tracing::warn!(value = %raw, error = %e, "invalid BIND_ADDR; falling back to {DEFAULT}");
+            DEFAULT.parse().expect("default bind addr is valid")
+        }
+    }
+}
+
 fn cleanup_old_log_files(log_dir: &Path, retention: Duration) -> anyhow::Result<()> {
     let now = SystemTime::now();
     for entry in std::fs::read_dir(log_dir)? {
@@ -611,7 +627,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/healthz", get(|| async { axum::http::StatusCode::OK }));
 
-    let addr: SocketAddr = "127.0.0.1:8080".parse()?;
+    let addr = resolve_bind_addr();
     tracing::info!(%addr, "listening");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;

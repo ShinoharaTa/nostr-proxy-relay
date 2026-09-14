@@ -1,0 +1,27 @@
+# Blue/Green 用リバースプロキシ（Issue #39）
+#
+# Cloudflare Tunnel は r-test.shino3.net → localhost:8080 を向いている。
+# その 8080 をこの Caddy が受け、現在有効なスロットへ流す。
+# 切替は ops/relayctl が下の import 先ファイルを書き換えて reload する。
+#
+# - WebSocket (wss://) は reverse_proxy が Upgrade を自動処理するため追加設定不要
+# - CF-Connecting-IP はそのまま透過され、リレー側 (src/client_ip.rs) が実 IP を解決する
+
+{
+	admin localhost:2019
+	# Cloudflare Tunnel が TLS を終端するため、ここは平文で受ける
+	auto_https off
+}
+
+:8080 {
+	# 現在の向き先（blue or green）。relayctl が生成・更新する
+	import /etc/caddy/active-slot.conf
+
+	log {
+		output file /var/log/caddy/relay.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format console
+	}
+}
