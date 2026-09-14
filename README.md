@@ -107,6 +107,64 @@ proxy-nostr-relay
 - [API Reference](docs/api.md) — public, admin, SSE and the legacy 301
 - [UI Redesign Plan & PROFILER theme](docs/ui_redesign_ja.md) (Japanese)
 - [Developer Guide](docs/development.md)
+- [Blue/Green ops scripts](ops/) — Caddyfile, systemd units, `relayctl`
+- [CLAUDE.md](CLAUDE.md) — guidance for AI coding agents working on this repo
+
+## Blue/Green Deployment
+
+Run a stable slot and a development slot side by side on one server, and switch
+which one the **same public URL** points at. Nothing changes on the DNS/CDN side —
+the tunnel (or reverse proxy) keeps pointing at `localhost:8080`, and Caddy forwards
+to whichever slot is currently active.
+
+```
+public URL → localhost:8080 (Caddy) → active slot
+  relay-blue   :8081  /srv/relay/blue    stable
+  relay-green  :8082  /srv/relay/green   development
+```
+
+### Setup
+
+```bash
+# 1. Install Caddy, then place the files from ops/
+sudo install -m644 ops/Caddyfile /etc/caddy/Caddyfile
+sudo install -m644 ops/systemd/relay-*.service /etc/systemd/system/
+sudo install -m755 ops/relayctl /usr/local/bin/relayctl
+
+# 2. Create the slots (env sets BIND_ADDR / DATABASE_URL / LOG_DIR per slot)
+sudo mkdir -p /srv/relay/{blue,green}/logs /srv/relay/state
+sudo cp ops/systemd/relay-blue.env.example /srv/relay/blue/env   # edit it
+printf 'reverse_proxy 127.0.0.1:8081\n' | sudo tee /etc/caddy/active-slot.conf
+echo blue | sudo tee /srv/relay/state/active
+
+sudo systemctl daemon-reload && sudo systemctl enable --now relay-blue relay-green caddy
+```
+
+### Operating it
+
+```bash
+relayctl status                              # active slot, versions, health
+relayctl deploy green <git-ref> [--with-db]  # build a ref into green
+relayctl point green                         # send the URL to green (for testing)
+relayctl promote                             # ship green's build to blue, point back to blue
+relayctl rollback                            # return to the previous slot
+relayctl logs green 100
+```
+
+Typical loop: `deploy green <branch> --with-db` → `point green` to verify →
+`promote` when it looks good (blue becomes current, green stays free for development).
+
+**Notes**
+
+- `deploy` builds the given ref in an isolated `git worktree`, so the checked-out
+  branch in your working tree does not affect what gets shipped.
+- Each slot has **its own database**, so a migration in the development version can
+  never corrupt the stable one. Pass `--with-db` to clone the stable DB into the slot
+  (via `VACUUM INTO`); without it the slot starts with an empty DB and **no upstream
+  relays configured**.
+- `point` and `promote` health-check the target first and abort if it is down.
+
+See [`ops/`](ops/) and the [Developer Guide](docs/development.md).
 
 ## License
 MIT OR Apache-2.0
