@@ -114,6 +114,19 @@ server {
 | FILTERING › Quick BAN | npub / kind / npub×kind / tag_contains |
 | FILTERING › Auto Guard | 有効化、バースト窓・上限、除外 kind、重複閾値・窓、Quarantine 秒数 |
 
+### リバースプロキシ / Cloudflare Tunnel 配下での実クライアント IP
+
+Tunnel（cloudflared → localhost）配下では TCP ピアが常に 127.0.0.1 になる。
+このままでは IP ACL・TOP SOURCES・自動ガード・ログインロックアウトが機能しないため、
+**直接続のピアが loopback のときに限り**、以下のヘッダを優先順に信頼して実 IP とする:
+
+1. `CF-Connecting-IP`（Cloudflare が必ず付与）
+2. `X-Real-IP`
+3. `X-Forwarded-For` の先頭
+
+ピアが loopback でない場合はヘッダを**一切信頼しない**。
+外部から `CF-Connecting-IP` を偽装して直接続されても無視される（設定は不要）。
+
 ### 設定できない（ハードコード）もの
 
 - bind アドレス `127.0.0.1:8080`（Issue 管理: env 化予定）

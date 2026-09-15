@@ -2,6 +2,7 @@ mod access;
 mod api;
 mod auth;
 mod auth_throttle;
+mod client_ip;
 mod config;
 mod db;
 mod docs;
@@ -552,7 +553,9 @@ async fn main() -> anyhow::Result<()> {
                 move |ws: Option<WebSocketUpgrade>, headers: HeaderMap, ConnectInfo(addr): ConnectInfo<SocketAddr>| {
                     let pool = pool.clone();
                     let proxy_ctx = proxy_ctx.clone();
-                    let client_ip = addr.ip().to_string();
+                    // Cloudflare Tunnel 配下では TCP ピアが常に 127.0.0.1 になるため、
+                    // loopback ピアに限り CF-Connecting-IP 等から実 IP を解決する (#37)
+                    let client_ip = client_ip::resolve_client_ip(addr.ip(), &headers);
                     async move {
                         let accept_header = headers
                             .get(ACCEPT)

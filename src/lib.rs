@@ -2,6 +2,7 @@ pub mod access;
 pub mod api;
 pub mod auth;
 pub mod auth_throttle;
+pub mod client_ip;
 pub mod config;
 pub mod db;
 pub mod event_counter;
