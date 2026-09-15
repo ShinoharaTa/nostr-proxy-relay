@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Card, Button, DataList, type Column, Tag, useConfirm, useToast } from '../primitives';
+import { Card, Button, DataList, type Column, Pill, Tag, useConfirm, useToast } from '../primitives';
 import { Investigate as Api, IpAcl, Quarantine as QApi, Relays, SimpleBan } from '../api';
 import type { Counted, EventRow, InvestigateResponse, RelayStat, TagStat, Verdict } from '../api';
+import { useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useI18n } from '../i18n';
 
 /**
@@ -14,31 +16,73 @@ export function InvestigatePage() {
   const { t } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();
-  const [idsText, setIdsText] = useState('');
-  const [authorsText, setAuthorsText] = useState('');
+  const [params] = useSearchParams();
+  const [refsText, setRefsText] = useState(params.get('refs') ?? '');
+  const [idsText, setIdsText] = useState(params.get('ids') ?? '');
+  const [authorsText, setAuthorsText] = useState(params.get('authors') ?? '');
   const [limit, setLimit] = useState(200);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<InvestigateResponse | null>(null);
+  /** ページングで蓄積した全イベント（res.analysis.events はページ単位なので別持ち） */
+  const [allEvents, setAllEvents] = useState<EventRow[]>([]);
+  const [kindChip, setKindChip] = useState<string>('all');
 
   const split = (s: string) =>
     s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
 
+  const buildReq = () => ({
+    refs: split(refsText),
+    ids: split(idsText),
+    authors: split(authorsText),
+    limit,
+    timeout_ms: 6000,
+  });
+
   const run = async () => {
-    const ids = split(idsText);
-    const authors = split(authorsText);
-    if (ids.length === 0 && authors.length === 0) {
+    const req = buildReq();
+    if (req.refs.length === 0 && req.ids.length === 0 && req.authors.length === 0) {
       toast.push({ variant: 'alert', message: t.investigate.needInput });
       return;
     }
     setBusy(true);
     try {
-      setRes(await Api.run({ ids, authors, limit, timeout_ms: 6000 }));
+      const r = await Api.run(req);
+      setRes(r);
+      setAllEvents(r.analysis.events);
+      setKindChip('all');
     } catch (e) {
       toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
     } finally {
       setBusy(false);
     }
   };
+
+  /** until カーソルで続きを取得して蓄積する（実リレーで動作検証済みのページング） */
+  const loadMore = async () => {
+    if (allEvents.length === 0) return;
+    const oldest = Math.min(...allEvents.map((e) => e.created_at));
+    setBusy(true);
+    try {
+      const r = await Api.run({ ...buildReq(), until: oldest - 1 });
+      const known = new Set(allEvents.map((e) => e.id));
+      const fresh = r.analysis.events.filter((e) => !known.has(e.id));
+      if (fresh.length === 0) {
+        toast.push({ variant: 'ok', message: t.investigate.noMore });
+      } else {
+        setAllEvents((prev) => [...prev, ...fresh]);
+      }
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ワンクリック起点（?authors= / ?refs= 付きで遷移してきた場合）は自動実行
+  useEffect(() => {
+    if (params.get('authors') || params.get('refs') || params.get('ids')) run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 解析が出した提案ルールを Quick BAN として登録する（適用前に必ず確認）。 */
   const applyRule = async (rule: Record<string, unknown>) => {
@@ -145,20 +189,43 @@ export function InvestigatePage() {
 
   const a = res?.analysis;
 
+  /** 反応マトリクス: 1 回の取得結果を kind チップでローカル分離する（実測: #e は 1/6/7 混在で返る） */
+  const CHIP_DEFS: { id: string; label: string; kinds: number[] }[] = [
+    { id: 'all', label: 'ALL', kinds: [] },
+    { id: 'reply', label: t.investigate.chipReply, kinds: [1, 1111] },
+    { id: 'reaction', label: t.investigate.chipReaction, kinds: [7] },
+    { id: 'repost', label: t.investigate.chipRepost, kinds: [6, 16] },
+    { id: 'zap', label: 'ZAP', kinds: [9735] },
+  ];
+  const chipCount = (kinds: number[]) =>
+    kinds.length === 0 ? allEvents.length : allEvents.filter((e) => kinds.includes(e.kind)).length;
+  const kindChips = CHIP_DEFS
+    .filter((c) => c.id === 'all' || chipCount(c.kinds) > 0)
+    .map((c) => ({ id: c.id, label: `${c.label} ${chipCount(c.kinds)}` }));
+  const activeChip = CHIP_DEFS.find((c) => c.id === kindChip) ?? CHIP_DEFS[0];
+  const visibleEvents = activeChip.kinds.length === 0
+    ? allEvents
+    : allEvents.filter((e) => activeChip.kinds.includes(e.kind));
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <Card title={<>{t.investigate.title} <span className="crt-hud-tag">{t.investigate.noStore}</span></>}>
         <p className="muted">{t.investigate.intro}</p>
         <div className="form-grid">
           <label>
+            <span>{t.investigate.refsLabel}</span>
+            <textarea className="crt-input" rows={2} value={refsText}
+              onChange={(e) => setRefsText(e.target.value)} placeholder="note1... / nevent1... / hex" />
+          </label>
+          <label>
             <span>{t.investigate.idsLabel}</span>
-            <textarea className="crt-input" rows={3} value={idsText}
-              onChange={(e) => setIdsText(e.target.value)} placeholder="event id を改行 / カンマ区切りで" />
+            <textarea className="crt-input" rows={2} value={idsText}
+              onChange={(e) => setIdsText(e.target.value)} placeholder="note1... / nevent1... / hex" />
           </label>
           <label>
             <span>{t.investigate.authorsLabel}</span>
             <textarea className="crt-input" rows={2} value={authorsText}
-              onChange={(e) => setAuthorsText(e.target.value)} placeholder="pubkey (hex) を改行 / カンマ区切りで" />
+              onChange={(e) => setAuthorsText(e.target.value)} placeholder="npub1... / nprofile1... / hex" />
           </label>
           <label>
             <span>limit</span>
@@ -172,6 +239,25 @@ export function InvestigatePage() {
           </div>
         </div>
       </Card>
+
+      {res && res.roots.length > 0 && (
+        <Card title={<>{t.investigate.rootTitle} <span className="crt-hud-tag">{res.roots.length}</span></>}>
+          {res.roots.map((r) => (
+            <div key={r.id} style={{ borderLeft: '3px solid var(--crt-info)', padding: '8px 12px', marginBottom: 8 }}>
+              <div className="muted" style={{ fontSize: 11 }}>
+                kind {r.kind} · {new Date(r.created_at * 1000).toISOString().slice(0, 16).replace('T', ' ')} ·{' '}
+                <code>{r.pubkey.slice(0, 16)}…</code>
+              </div>
+              <p style={{ margin: '6px 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.content || '—'}</p>
+            </div>
+          ))}
+        </Card>
+      )}
+      {res && res.unusable_relay_hints.length > 0 && (
+        <p className="muted" style={{ margin: 0 }}>
+          {t.investigate.unusableHints(res.unusable_relay_hints.join(', '))}
+        </p>
+      )}
 
       {a && (
         <>
@@ -255,9 +341,22 @@ export function InvestigatePage() {
             />
           </Card>
 
-          <Card title={<>{t.investigate.eventList} <span className="crt-hud-tag">{a.events.length}</span></>}>
+          <Card
+            title={<>{t.investigate.eventList} <span className="crt-hud-tag">{visibleEvents.length} / {allEvents.length}</span></>}
+            actions={
+              <>
+                <Pill
+                  items={kindChips}
+                  active={kindChip}
+                  onChange={setKindChip}
+                  ariaLabel="kind filter"
+                />
+                <Button variant="ghost" disabled={busy} onClick={loadMore}>{t.investigate.loadMore}</Button>
+              </>
+            }
+          >
             <DataList
-              rows={a.events}
+              rows={visibleEvents}
               columns={eventCols}
               rowKey={(r) => r.id}
               initialSort={{ key: 'at', dir: 'desc' }}

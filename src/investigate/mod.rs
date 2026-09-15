@@ -29,10 +29,17 @@ pub struct InvestigateRequest {
     pub ids: Vec<String>,
     #[serde(default)]
     pub authors: Vec<String>,
+    /// この event id 群への**反応**（リプライ / リアクション / リポスト / 引用 / zap）を集める。
+    /// `#e` / `#q` / `#E`(NIP-22) を 1 つの REQ に複数フィルタ（OR）で載せる。
+    #[serde(default)]
+    pub refs: Vec<String>,
     #[serde(default)]
     pub kinds: Vec<i64>,
     #[serde(default)]
     pub since: Option<i64>,
+    /// ページング用。前回結果の最古 created_at - 1 を渡すと続きが取れる（実リレーで検証済み）
+    #[serde(default)]
+    pub until: Option<i64>,
     #[serde(default)]
     pub limit: Option<usize>,
     /// 省略時は接続中のリレー全部
@@ -43,30 +50,54 @@ pub struct InvestigateRequest {
 }
 
 impl InvestigateRequest {
-    /// NIP-01 のフィルタ JSON を組み立てる。
-    pub fn to_filter(&self) -> serde_json::Value {
-        let mut f = serde_json::Map::new();
-        if !self.ids.is_empty() {
-            f.insert("ids".into(), serde_json::json!(self.ids));
-        }
-        if !self.authors.is_empty() {
-            f.insert("authors".into(), serde_json::json!(self.authors));
-        }
-        if !self.kinds.is_empty() {
-            f.insert("kinds".into(), serde_json::json!(self.kinds));
-        }
+    fn common(&self, f: &mut serde_json::Map<String, serde_json::Value>) {
         if let Some(since) = self.since {
             f.insert("since".into(), serde_json::json!(since));
+        }
+        if let Some(until) = self.until {
+            f.insert("until".into(), serde_json::json!(until));
         }
         f.insert(
             "limit".into(),
             serde_json::json!(self.limit.unwrap_or(200).min(MAX_EVENTS_PER_RELAY)),
         );
-        serde_json::Value::Object(f)
+    }
+
+    /// NIP-01 のフィルタ群を組み立てる。REQ には複数フィルタを載せられ、**OR** で評価される。
+    /// refs（反応収集）は `#e` / `#q` / `#E` の 3 フィルタに展開する
+    /// （実測: `#e` 1 本で kind 1/6/7/9735 が混在して返る。kind 分離はローカルで行う）。
+    pub fn to_filters(&self) -> Vec<serde_json::Value> {
+        let mut filters = Vec::new();
+
+        if !self.ids.is_empty() || !self.authors.is_empty() || !self.kinds.is_empty() {
+            let mut f = serde_json::Map::new();
+            if !self.ids.is_empty() {
+                f.insert("ids".into(), serde_json::json!(self.ids));
+            }
+            if !self.authors.is_empty() {
+                f.insert("authors".into(), serde_json::json!(self.authors));
+            }
+            if !self.kinds.is_empty() {
+                f.insert("kinds".into(), serde_json::json!(self.kinds));
+            }
+            self.common(&mut f);
+            filters.push(serde_json::Value::Object(f));
+        }
+
+        if !self.refs.is_empty() {
+            for tag in ["#e", "#q", "#E"] {
+                let mut f = serde_json::Map::new();
+                f.insert(tag.into(), serde_json::json!(self.refs));
+                self.common(&mut f);
+                filters.push(serde_json::Value::Object(f));
+            }
+        }
+
+        filters
     }
 
     pub fn is_empty(&self) -> bool {
-        self.ids.is_empty() && self.authors.is_empty() && self.kinds.is_empty()
+        self.ids.is_empty() && self.authors.is_empty() && self.kinds.is_empty() && self.refs.is_empty()
     }
 }
 
@@ -138,9 +169,17 @@ pub struct EventRow {
 }
 
 #[derive(Debug, Serialize)]
+pub struct KindCount {
+    pub kind: i64,
+    pub count: usize,
+}
+
+#[derive(Debug, Serialize)]
 pub struct Analysis {
     pub fetched: usize,
     pub unique_events: usize,
+    /// kind ごとの件数（反応マトリクスのチップ表示用）
+    pub kind_counts: Vec<KindCount>,
     pub by_relay: Vec<RelayStat>,
     pub authors_unique: usize,
     pub top_authors: Vec<Counted>,
@@ -160,7 +199,7 @@ pub struct Analysis {
 pub async fn collect(
     relay_pool: &Arc<RelayPool>,
     urls: &[String],
-    filter: serde_json::Value,
+    filters: Vec<serde_json::Value>,
     timeout_ms: u64,
 ) -> (Vec<CollectedEvent>, Vec<RelayStat>) {
     let timeout = Duration::from_millis(timeout_ms.min(MAX_TIMEOUT_MS));
@@ -169,9 +208,9 @@ pub async fn collect(
     for url in urls {
         let url = url.clone();
         let pool = Arc::clone(relay_pool);
-        let filter = filter.clone();
+        let filters = filters.clone();
         tasks.push(tokio::spawn(async move {
-            collect_from_relay(pool, url, filter, timeout).await
+            collect_from_relay(pool, url, filters, timeout).await
         }));
     }
 
@@ -213,7 +252,7 @@ pub async fn collect(
 async fn collect_from_relay(
     pool: Arc<RelayPool>,
     url: String,
-    filter: serde_json::Value,
+    filters: Vec<serde_json::Value>,
     timeout: Duration,
 ) -> (String, Vec<Event>, u64, bool) {
     let started = std::time::Instant::now();
@@ -222,8 +261,9 @@ async fn collect_from_relay(
         return (url, Vec::new(), 0, false);
     };
     let sub_id = format!("investigate-{}", uuid::Uuid::new_v4());
-    pool.send(&url, serde_json::json!(["REQ", sub_id, filter]).to_string())
-        .await;
+    let mut req = vec![serde_json::json!("REQ"), serde_json::json!(sub_id)];
+    req.extend(filters);
+    pool.send(&url, serde_json::Value::Array(req).to_string()).await;
 
     let mut events = Vec::new();
     let mut completed = false;
@@ -275,16 +315,26 @@ fn top_n(counts: HashMap<String, usize>, n: usize) -> Vec<Counted> {
 }
 
 /// 集めたイベント群からパターンを判定する。
-pub fn analyze(collected: &[CollectedEvent], stats: Vec<RelayStat>) -> Analysis {
+/// `structural_values` = 調査対象の event id（refs）と root 投稿者の pubkey。
+/// リプライは構造上「root への e タグ」と「root 投稿者への p タグ」を全件共有するため、
+/// これらを共通タグ判定から除外する。除外しないと大規模リプライ爆撃で
+/// 「p=被害者 をブロック」という最悪の誤提案になる（実リレー検証で確認）。
+pub fn analyze(
+    collected: &[CollectedEvent],
+    stats: Vec<RelayStat>,
+    structural_values: &[String],
+) -> Analysis {
     let total = collected.len();
 
     let mut authors: HashMap<String, usize> = HashMap::new();
+    let mut kinds_map: HashMap<i64, usize> = HashMap::new();
     let mut contents: HashMap<String, usize> = HashMap::new();
     let mut tags: HashMap<(String, String), usize> = HashMap::new();
     let mut times: Vec<i64> = Vec::with_capacity(total);
 
     for c in collected {
         *authors.entry(c.event.pubkey.clone()).or_default() += 1;
+        *kinds_map.entry(c.event.kind).or_default() += 1;
         let mut h = Sha256::new();
         h.update(c.event.content.as_bytes());
         *contents.entry(hex::encode(h.finalize())).or_default() += 1;
@@ -293,6 +343,12 @@ pub fn analyze(collected: &[CollectedEvent], stats: Vec<RelayStat>) -> Analysis 
         let mut seen = std::collections::HashSet::new();
         for t in &c.event.tags {
             let (Some(name), Some(value)) = (t.first(), t.get(1)) else { continue };
+            // スレッド構造タグ（e/E/q/a=対象 id、p/P=root 投稿者）は除外
+            if matches!(name.as_str(), "e" | "E" | "q" | "a" | "p" | "P")
+                && structural_values.iter().any(|r| r == value)
+            {
+                continue;
+            }
             if seen.insert((name.clone(), value.clone())) {
                 *tags.entry((name.clone(), value.clone())).or_default() += 1;
             }
@@ -344,9 +400,16 @@ pub fn analyze(collected: &[CollectedEvent], stats: Vec<RelayStat>) -> Analysis 
     let timing = compute_timing(&mut times);
     let verdicts = build_verdicts(total, authors_unique, &top_authors, content_unique, &top_contents, &common_tags, &stats, &timing);
 
+    let mut kind_counts: Vec<KindCount> = kinds_map
+        .into_iter()
+        .map(|(kind, count)| KindCount { kind, count })
+        .collect();
+    kind_counts.sort_by(|a, b| b.count.cmp(&a.count));
+
     Analysis {
         fetched: total,
         unique_events: total,
+        kind_counts,
         by_relay: stats,
         authors_unique,
         top_authors,
@@ -509,7 +572,7 @@ mod tests {
         let evs: Vec<CollectedEvent> = (0..10)
             .map(|i| ev(&format!("e{i}"), "pk-same", &format!("content {i}"), 1000 + i * 7, vec![]))
             .collect();
-        let a = analyze(&evs, stats());
+        let a = analyze(&evs, stats(), &[]);
         assert_eq!(a.authors_unique, 1);
         assert!(a.verdicts.iter().any(|v| v.kind == "single_npub"));
         // npub 単体ルールが提案される
@@ -522,7 +585,7 @@ mod tests {
         let evs: Vec<CollectedEvent> = (0..12)
             .map(|i| ev(&format!("e{i}"), &format!("pk{i}"), "buy now", 1000 + i * 3, vec![]))
             .collect();
-        let a = analyze(&evs, stats());
+        let a = analyze(&evs, stats(), &[]);
         assert_eq!(a.authors_unique, 12);
         assert_eq!(a.content_unique, 1);
         assert!(a.verdicts.iter().any(|v| v.kind == "throwaway_keys"));
@@ -535,7 +598,7 @@ mod tests {
             .map(|i| ev(&format!("e{i}"), &format!("pk{i}"), &format!("c{i}"), 1000 + i * 11,
                         vec![vec!["t".into(), "spam-campaign".into()]]))
             .collect();
-        let a = analyze(&evs, stats());
+        let a = analyze(&evs, stats(), &[]);
         assert_eq!(a.common_tags.len(), 1);
         assert_eq!(a.common_tags[0].value, "spam-campaign");
         let v = a.verdicts.iter().find(|v| v.kind == "common_tag").expect("common_tag verdict");
@@ -550,7 +613,7 @@ mod tests {
         let evs: Vec<CollectedEvent> = (0..10)
             .map(|i| ev(&format!("e{i}"), &format!("pk{i}"), &format!("c{i}"), 1000 + i * 5, vec![]))
             .collect();
-        let a = analyze(&evs, stats());
+        let a = analyze(&evs, stats(), &[]);
         let t = a.timing.as_ref().unwrap();
         assert_eq!(t.median_interval_secs, 5);
         assert!(a.verdicts.iter().any(|v| v.kind == "machine_timing"));
@@ -566,7 +629,7 @@ mod tests {
             t += g;
             evs.push(ev(&format!("e{i}"), &format!("pk{i}"), &format!("unique content {i}"), t, vec![]));
         }
-        let a = analyze(&evs, stats());
+        let a = analyze(&evs, stats(), &[]);
         assert!(a.verdicts.is_empty(), "unexpected verdicts: {:?}", a.verdicts);
     }
 
@@ -577,7 +640,7 @@ mod tests {
         for (i, pk) in ["pk-a", "pk-a", "pk-a", "pk-b", "pk-b", "pk-c"].iter().enumerate() {
             evs.push(ev(&format!("e{i}"), pk, &format!("content {i}"), 1000 + i as i64 * 17, vec![]));
         }
-        let a = analyze(&evs, stats());
+        let a = analyze(&evs, stats(), &[]);
 
         // 全件分布が回数付きで降順に出る
         assert_eq!(a.author_counts.len(), 3);
@@ -594,24 +657,81 @@ mod tests {
     }
 
     #[test]
+    fn common_tag_excludes_structural_refs() {
+        // 全リプライが root への e タグを持つ（スレッド構造）+ 9 割がキャンペーンタグ
+        let root = "rootid00".to_string();
+        let mut evs = Vec::new();
+        for i in 0..10 {
+            let mut tags = vec![vec!["e".to_string(), root.clone(), String::new(), "root".to_string()]];
+            if i < 9 { tags.push(vec!["t".to_string(), "spam-campaign".to_string()]); }
+            evs.push(ev(&format!("e{i}"), &format!("pk{i}"), &format!("c{i}"), 1000 + i as i64 * 13, tags));
+        }
+        // 全リプライに被害者（root 投稿者）への p タグも付ける
+        for e in &mut evs {
+            e.event.tags.push(vec!["p".to_string(), "victim-pubkey".to_string()]);
+        }
+        let a = analyze(&evs, stats(), &[root.clone(), "victim-pubkey".to_string()]);
+        // root への e タグ / 被害者への p タグは共通タグに出ない
+        assert!(!a.common_tags.iter().any(|t| t.value == root), "structural e-tag leaked: {:?}", a.common_tags);
+        assert!(!a.common_tags.iter().any(|t| t.value == "victim-pubkey"), "victim p-tag leaked: {:?}", a.common_tags);
+        // 本物のキャンペーンタグは検出される
+        assert!(a.common_tags.iter().any(|t| t.value == "spam-campaign"));
+        // refs 無しで解析すると e タグも出る（従来動作の確認）
+        let b = analyze(&evs, stats(), &[]);
+        assert!(b.common_tags.iter().any(|t| t.value == root));
+    }
+
+    #[test]
     fn empty_input_is_safe() {
-        let a = analyze(&[], vec![]);
+        let a = analyze(&[], vec![], &[]);
         assert_eq!(a.fetched, 0);
         assert!(a.verdicts.is_empty());
         assert!(a.timing.is_none());
     }
 
     #[test]
-    fn filter_builds_nip01_shape() {
+    fn filters_build_nip01_shape_with_refs_and_until() {
         let req = InvestigateRequest {
-            ids: vec!["abc".into()], authors: vec![], kinds: vec![1],
-            since: Some(100), limit: Some(50), relays: vec![], timeout_ms: None,
+            ids: vec!["abc".into()], authors: vec![], refs: vec![], kinds: vec![1],
+            since: Some(100), until: Some(900), limit: Some(50), relays: vec![], timeout_ms: None,
         };
-        let f = req.to_filter();
-        assert_eq!(f["ids"][0], "abc");
-        assert_eq!(f["kinds"][0], 1);
-        assert_eq!(f["since"], 100);
-        assert_eq!(f["limit"], 50);
-        assert!(f.get("authors").is_none());
+        let fs = req.to_filters();
+        assert_eq!(fs.len(), 1);
+        assert_eq!(fs[0]["ids"][0], "abc");
+        assert_eq!(fs[0]["kinds"][0], 1);
+        assert_eq!(fs[0]["since"], 100);
+        assert_eq!(fs[0]["until"], 900);
+        assert_eq!(fs[0]["limit"], 50);
+        assert!(fs[0].get("authors").is_none());
+
+        // refs は #e / #q / #E の 3 フィルタ（OR）に展開される
+        let req = InvestigateRequest {
+            ids: vec![], authors: vec![], refs: vec!["rootid".into()], kinds: vec![],
+            since: None, until: None, limit: None, relays: vec![], timeout_ms: None,
+        };
+        let fs = req.to_filters();
+        assert_eq!(fs.len(), 3);
+        assert_eq!(fs[0]["#e"][0], "rootid");
+        assert_eq!(fs[1]["#q"][0], "rootid");
+        assert_eq!(fs[2]["#E"][0], "rootid");
+        // ids/authors が無いとき、余計な全量フィルタが混ざらないこと
+        assert!(fs.iter().all(|f| f.get("ids").is_none()));
+    }
+
+    #[test]
+    fn analysis_reports_kind_distribution() {
+        // リプライ 3 + リアクション 2 + リポスト 1（実測の混在パターンを模す）
+        let mut evs = Vec::new();
+        for (i, k) in [1i64, 1, 1, 7, 7, 6].iter().enumerate() {
+            let mut e = ev(&format!("e{i}"), &format!("pk{i}"), &format!("c{i}"), 1000 + i as i64 * 13, vec![]);
+            e.event.kind = *k;
+            evs.push(e);
+        }
+        let a = analyze(&evs, stats(), &[]);
+        assert_eq!(a.kind_counts[0].kind, 1);
+        assert_eq!(a.kind_counts[0].count, 3);
+        assert_eq!(a.kind_counts[1].kind, 7);
+        assert_eq!(a.kind_counts[1].count, 2);
+        assert_eq!(a.kind_counts[2].kind, 6);
     }
 }
