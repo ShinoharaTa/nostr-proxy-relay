@@ -91,6 +91,7 @@ server {
 |---|---|---|
 | `ADMIN_USER` / `ADMIN_PASS` | — (必須) | 管理コンソール BasicAuth |
 | `DATABASE_URL` | `sqlite:data/app.sqlite` | DB パス |
+| `BIND_ADDR` | `127.0.0.1:8080` | 待ち受けアドレス（Blue/Green で slot ごとに変える） |
 | `LOG_DIR` | `logs` | ファイルログ出力先（1h ローテ / 72h 保持） |
 | `LOG_RETENTION_DAYS` | `60` | DB ログ（connection / rejection / relay_event）保持日数 |
 | `RUST_LOG` | `info` | ログレベル |
@@ -129,6 +130,5 @@ Tunnel（cloudflared → localhost）配下では TCP ピアが常に 127.0.0.1 
 
 ### 設定できない（ハードコード）もの
 
-- bind アドレス `127.0.0.1:8080`（Issue 管理: env 化予定）
 - `eose_autoclose_kinds` の UI 編集（DB 列はあるが API / UI 未実装 — Issue 管理）
 - WS ping/timeout 間隔（30s / 120s / 90s）、EOSE 集約猶予（1.5s / 10s）、dedupe LRU 1 万件、ファイルログ保持 72h
