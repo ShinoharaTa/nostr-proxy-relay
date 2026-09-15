@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, Button, Pill, DataList, type Column, Tag } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Logs as LogsApi } from '../api';
@@ -65,7 +66,12 @@ function RejectionTab() {
   const cols: Column<EventRejectionLogRow>[] = [
     { key: 'ts',     label: 'TIME',   render: (r) => <code>{shortDateTime(r.created_at)}</code>, width: 120 },
     { key: 'kind',   label: 'KIND',   render: (r) => <Tag variant="alert">k{r.kind}</Tag>, width: 70 },
-    { key: 'npub',   label: 'NPUB',   render: (r) => <code className="logs-cell-mono">{r.npub || '—'}</code> },
+    { key: 'npub',   label: 'NPUB',
+      render: (r) => r.npub
+        ? <Link to={`/investigate?authors=${encodeURIComponent(r.npub)}`} title="調査画面で開く">
+            <code className="logs-cell-mono">{r.npub}</code>
+          </Link>
+        : '—' },
     { key: 'ip',     label: 'IP',     render: (r) => <code>{r.ip_address ?? '—'}</code>, hideOnMobile: true, width: 130 },
     { key: 'reason', label: 'REASON', render: (r) => <span title={r.reason}>{r.reason}</span> },
   ];

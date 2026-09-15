@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Button, Pill, DataList, type Column, Drawer, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Actors, Quarantine as QApi, Safelist } from '../api';
@@ -30,6 +31,7 @@ export function NpubPanel() {
   const { t } = useI18n();
   const toast = useToast();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<SubTab>('allow');
   const [rows, setRows] = useState<SafelistRow[] | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -142,13 +144,21 @@ export function NpubPanel() {
           {!r.banned && !r.quarantined && r.safelist_flags == null && <Tag variant="dim">—</Tag>}
         </span>
       ) },
-    { key: 'actions', label: '', width: 200,
-      render: (r) => (!r.banned && !r.quarantined) ? (
+    { key: 'actions', label: '', width: 250,
+      render: (r) => (
         <span style={{ display: 'inline-flex', gap: 6 }}>
-          <Button variant="danger" onClick={() => quickBan(r.npub)}>BAN</Button>
-          <Button variant="ghost" onClick={() => quickQuarantine(r.npub)}>Q 24h</Button>
+          {/* ワンクリック起点 (#35 P1): npub をコピーせず調査画面へ */}
+          <Button variant="ghost" onClick={() => navigate(`/investigate?authors=${encodeURIComponent(r.npub)}`)}>
+            {t.investigate.title}
+          </Button>
+          {(!r.banned && !r.quarantined) && (
+            <>
+              <Button variant="danger" onClick={() => quickBan(r.npub)}>BAN</Button>
+              <Button variant="ghost" onClick={() => quickQuarantine(r.npub)}>Q 24h</Button>
+            </>
+          )}
         </span>
-      ) : null },
+      ) },
   ];
 
   return (

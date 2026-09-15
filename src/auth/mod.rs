@@ -47,10 +47,11 @@ pub async fn basic_auth(
     req: Request,
     next: Next,
 ) -> Response {
+    // Tunnel 配下でも実 IP でロックアウトを効かせる (#37)
     let ip = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|c| c.0.ip().to_string())
+        .map(|c| crate::client_ip::resolve_client_ip(c.0.ip(), req.headers()))
         .unwrap_or_else(|| "unknown".to_string());
 
     if state.throttle.is_locked(&ip) {

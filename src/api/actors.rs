@@ -24,21 +24,50 @@ pub fn routes() -> Router<ApiState> {
         .route("/investigate", axum::routing::post(post_investigate))
 }
 
-/// イベント調査（Issue #31）。上流リレーへ問い合わせて集め、その場で解析して返す。
+/// イベント調査（Issue #31 / #35 P1）。上流リレーへ問い合わせて集め、その場で解析して返す。
 /// **何も保存しない**（ストレージレス設計を崩さない）。
+///
+/// 入力は hex / NIP-19（npub, note1, nevent1, nprofile1）の両対応。
+/// nsec は明示的に拒否する。nevent / nprofile のリレーヒントは問い合わせ先に自動追加する。
 async fn post_investigate(
     State(s): State<ApiState>,
-    Json(req): Json<crate::investigate::InvestigateRequest>,
+    Json(mut req): Json<crate::investigate::InvestigateRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use crate::nostr::nip19;
+
+    // ── NIP-19 正規化（nsec はここで 400 になる） ──
+    let mut hint_relays: Vec<String> = Vec::new();
+    let mut norm = |items: &[String], is_pubkey: bool| -> Result<Vec<String>, (StatusCode, String)> {
+        let mut out = Vec::with_capacity(items.len());
+        for raw in items {
+            let r = if is_pubkey {
+                nip19::normalize_pubkey(raw)
+            } else {
+                nip19::normalize_event_id(raw)
+            };
+            match r {
+                Ok((hex, relays)) => {
+                    out.push(hex);
+                    hint_relays.extend(relays);
+                }
+                Err(e) => return Err((StatusCode::BAD_REQUEST, format!("入力を解釈できません: {e:#}"))),
+            }
+        }
+        Ok(out)
+    };
+    req.ids = norm(&req.ids, false)?;
+    req.refs = norm(&req.refs, false)?;
+    req.authors = norm(&req.authors, true)?;
+
     if req.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "ids / authors / kinds のいずれかを指定してください".to_string(),
+            "ids / authors / refs / kinds のいずれかを指定してください".to_string(),
         ));
     }
 
-    // 対象リレー: 未指定なら接続中のもの全部
-    let urls: Vec<String> = if req.relays.is_empty() {
+    // 対象リレー: 未指定なら接続中のもの全部 + NIP-19 のリレーヒント
+    let mut urls: Vec<String> = if req.relays.is_empty() {
         s.relay_pool
             .status_snapshot()
             .await
@@ -49,6 +78,19 @@ async fn post_investigate(
     } else {
         req.relays.clone()
     };
+    // ヒント先は RelayPool に接続が無いと subscribe できないため、既知のプールに
+    // 含まれるものだけ有効。未接続ヒントは結果に注記として返す。
+    let pool_urls: std::collections::HashSet<String> = urls.iter().cloned().collect();
+    let unusable_hints: Vec<String> = hint_relays
+        .iter()
+        .filter(|h| !pool_urls.contains(*h))
+        .cloned()
+        .collect();
+    for h in hint_relays {
+        if pool_urls.contains(&h) && !urls.contains(&h) {
+            urls.push(h);
+        }
+    }
     if urls.is_empty() {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -56,15 +98,38 @@ async fn post_investigate(
         ));
     }
 
-    let (collected, stats) = crate::investigate::collect(
-        &s.relay_pool,
-        &urls,
-        req.to_filter(),
-        req.timeout_ms.unwrap_or(5000),
-    )
-    .await;
+    let timeout_ms = req.timeout_ms.unwrap_or(5000);
 
-    let analysis = crate::investigate::analyze(&collected, stats);
+    // refs 指定時は root イベント本体を先に取得する。
+    // 「何への反応か」の表示に加え、root 投稿者の pubkey を構造タグ除外
+    // （リプライ爆撃で「p=被害者」を誤ってブロック提案しないため）に使う。
+    let mut structural_values = req.refs.clone();
+    let roots: Vec<serde_json::Value> = if req.refs.is_empty() {
+        Vec::new()
+    } else {
+        let root_filter = vec![serde_json::json!({ "ids": req.refs, "limit": req.refs.len() })];
+        let (root_events, _) =
+            crate::investigate::collect(&s.relay_pool, &urls, root_filter, timeout_ms.min(4000)).await;
+        root_events
+            .into_iter()
+            .map(|c| {
+                structural_values.push(c.event.pubkey.clone());
+                let content: String = c.event.content.chars().take(300).collect();
+                serde_json::json!({
+                    "id": c.event.id,
+                    "pubkey": c.event.pubkey,
+                    "kind": c.event.kind,
+                    "created_at": c.event.created_at,
+                    "content": content,
+                })
+            })
+            .collect()
+    };
+
+    let (collected, stats) =
+        crate::investigate::collect(&s.relay_pool, &urls, req.to_filters(), timeout_ms).await;
+
+    let analysis = crate::investigate::analyze(&collected, stats, &structural_values);
 
     // ローカル相関: リレー応答に IP は含まれないので、自分の拒否ログと突き合わせて補う
     let local = local_correlation(&s, &collected).await;
@@ -73,6 +138,8 @@ async fn post_investigate(
         "analysis": analysis,
         "local": local,
         "relays_queried": urls,
+        "roots": roots,
+        "unusable_relay_hints": unusable_hints,
     })))
 }
 

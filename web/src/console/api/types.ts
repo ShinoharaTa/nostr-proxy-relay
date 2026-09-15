@@ -205,11 +205,23 @@ export interface NpubActorDetail {
 export interface InvestigateRequest {
   ids?: string[];
   authors?: string[];
+  /** この event id 群への反応（リプライ等）を集める。hex / note1 / nevent1 可 */
+  refs?: string[];
   kinds?: number[];
   since?: number;
+  /** ページング: 前回結果の最古 created_at - 1 */
+  until?: number;
   limit?: number;
   relays?: string[];
   timeout_ms?: number;
+}
+
+export interface RootNote {
+  id: string;
+  pubkey: string;
+  kind: number;
+  created_at: number;
+  content: string;
 }
 
 export interface RelayStat { url: string; count: number; latency_ms: number; completed: boolean }
@@ -234,9 +246,12 @@ export interface EventRow {
   tag_count: number;
 }
 
+export interface KindCount { kind: number; count: number }
+
 export interface Analysis {
   fetched: number;
   unique_events: number;
+  kind_counts: KindCount[];
   by_relay: RelayStat[];
   authors_unique: number;
   top_authors: Counted[];
@@ -260,6 +275,8 @@ export interface InvestigateResponse {
     suggested_ip_ban: string | null;
   };
   relays_queried: string[];
+  roots: RootNote[];
+  unusable_relay_hints: string[];
 }
 
 /** 自動ガード (spec §5.14) — `/api/auto-guard` */
