@@ -148,6 +148,9 @@ relayctl point green                         # テスト用に URL を green へ
 relayctl promote                             # green の版を blue へ反映し blue へ戻す
 relayctl rollback                            # 直前の向き先へ戻す
 relayctl logs green 100
+
+# 公開ドメインの差し替え（Caddy は全ホストを受けるので設定変更は不要）
+set-relay-domain relay.example.net
 ```
 
 典型的な流れ: `deploy green <branch> --with-db` → `point green` で検証 →
