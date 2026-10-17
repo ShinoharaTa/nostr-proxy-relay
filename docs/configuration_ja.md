@@ -115,6 +115,24 @@ server {
 | FILTERING › Quick BAN | npub / kind / npub×kind / tag_contains |
 | FILTERING › Auto Guard | 有効化、バースト窓・上限、除外 kind、重複閾値・窓、Quarantine 秒数 |
 
+### 管理コンソールの認証情報（確認と復旧）
+
+パスワードは DB に bcrypt ハッシュで入るため**値は逆算できない**。設定値は「どう起動したか」を見る:
+
+| 確認場所 | 内容 |
+|---|---|
+| `/srv/relay/<slot>/env` | Blue/Green 運用時の設定値 |
+| リポジトリ直下の `.env` | ローカル実行時の設定値 |
+| `tr '\0' '\n' < /proc/<pid>/environ \| grep ADMIN_` | **実行中プロセスの実際の値**（最も確実。起動後に設定ファイルを変えても分かる） |
+| `sqlite3 <db> 'SELECT username FROM auth_users'` | ユーザー名のみ（パスワードはハッシュ） |
+
+**忘れた場合の復旧**: env の `ADMIN_PASS` を新しい値に書き換えて再起動すれば、
+起動時に既存ハッシュと照合して更新される（Issue #43）。DB を直接触る必要はない。
+更新が起きたときは warn ログに記録される（パスワード自体はログに出ない）。
+
+コンソールの システム 画面からも変更できる。ただし**再起動時は env の値が優先**されるため、
+UI で変えたら env も同じ値に揃えること。
+
 ### リバースプロキシ / Cloudflare Tunnel 配下での実クライアント IP
 
 Tunnel（cloudflared → localhost）配下では TCP ピアが常に 127.0.0.1 になる。

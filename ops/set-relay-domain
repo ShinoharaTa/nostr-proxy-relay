@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# 公開ドメインの差し替え（Issue #39 / Blue/Green 運用）
+#
+#   set-relay-domain <new-host>      例: set-relay-domain relay.example.net
+#
+# Caddy は :8080 で全ホストを受けるため**設定変更は不要**。
+# ここで変えるのは「リレーが自分の URL として表示する値」だけ:
+#   - 各スロットの env の RELAY_URL（LP の接続先表示）
+# あわせて、新ドメインが自分自身を上流に含んでいないか（ループ）を検査する。
+set -euo pipefail
+
+ROOT=${RELAYCTL_ROOT:-/srv/relay}
+HOST=${1:?usage: set-relay-domain <new-host>   例: relay.example.net}
+HOST=${HOST#wss://}; HOST=${HOST#https://}; HOST=${HOST%/}
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+# 自己参照の検査: 新ドメインを上流リレーに持っていると無限ループになる
+for slot in blue green; do
+  db=$ROOT/$slot/app.sqlite
+  [[ -f $db ]] || continue
+  if sqlite3 "$db" "SELECT url FROM relay_config WHERE enabled = 1" | grep -q "//$HOST\$"; then
+    die "$slot の上流リレーに $HOST 自身が含まれています（自己ループになります）。先に外してください"
+  fi
+done
+
+for slot in blue green; do
+  env_file=$ROOT/$slot/env
+  [[ -f $env_file ]] || continue
+  cp "$env_file" "$env_file.bak.$(date +%s)"
+  if grep -q '^RELAY_URL=' "$env_file"; then
+    sed -i "s|^RELAY_URL=.*|RELAY_URL=wss://$HOST|" "$env_file"
+  else
+    echo "RELAY_URL=wss://$HOST" >> "$env_file"
+  fi
+  echo ">> $slot: RELAY_URL=wss://$HOST"
+done
+
+systemctl restart relay-blue relay-green
+sleep 3
+for slot in blue green; do
+  port=$([[ $slot == blue ]] && echo 8081 || echo 8082)
+  printf "   %s health: " "$slot"
+  curl -sf -o /dev/null --max-time 5 "http://127.0.0.1:$port/healthz" && echo ok || echo DOWN
+done
+
+cat <<EOF
+
+>> 完了。Cloudflare 側で $HOST → http://localhost:8080 を向けてください
+   （Caddy は :8080 で全ホストを受けるため Caddyfile の変更は不要）
+
+   確認:
+     curl -H 'Accept: application/nostr+json' https://$HOST/
+     wscat -c wss://$HOST
+EOF

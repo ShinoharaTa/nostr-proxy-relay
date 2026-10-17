@@ -110,3 +110,21 @@ relayctl logs green 100                      # ログ
   （付け忘れると上流ゼロで WS が EOSE を返せない）
 - `point` / `promote` は切替前に health チェックを行い、落ちていれば中止する
 - 各スロットの設定は `/srv/relay/<slot>/env`（`BIND_ADDR` でポートを分ける）
+
+
+### 公開ドメインの差し替え
+
+```bash
+set-relay-domain relay.example.net
+```
+
+Caddy は `:8080` で**全ホストを受ける**ため、Caddyfile の変更は不要。
+このスクリプトが変えるのは「リレーが自分の URL として表示する値」だけ:
+
+- 各スロットの `env` の `RELAY_URL`（LP の接続先表示に使われる）
+- 変更前に env をバックアップし、両スロットを再起動して health を確認する
+
+**自己参照ガード**: 新ドメインが自分自身を上流リレーに含んでいる場合は中止する
+（プロキシが自分に接続する無限ループを防ぐ）。
+
+実行後、Cloudflare 側で新ホスト名 → `http://localhost:8080` を向ければ切替完了。

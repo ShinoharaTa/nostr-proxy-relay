@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, Tag } from '../primitives';
+import { Card, Button, Tag, useToast } from '../primitives';
 import { System } from '../api';
 import type { SystemInfoResponse } from '../api';
 import { bytes, formatUptimeSec } from '../utils/format';
@@ -22,6 +22,26 @@ const QUICK_ACTION_LABEL: Record<QuickActionKind, string> = {
 
 export function SystemPanel() {
   const { t } = useI18n();
+  const toast = useToast();
+  /** パスワード変更 (Issue #43) */
+  const [pwUser, setPwUser] = useState('admin');
+  const [pwCur, setPwCur] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const changePassword = async () => {
+    setPwBusy(true);
+    try {
+      const r = await System.changePassword({
+        username: pwUser, current_password: pwCur, new_password: pwNew,
+      });
+      toast.push({ variant: 'ok', message: r.note });
+      setPwCur(''); setPwNew('');
+    } catch (e) {
+      toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
+    } finally {
+      setPwBusy(false);
+    }
+  };
   const [info, setInfo] = useState<SystemInfoResponse | null>(null);
   const [crtOn, setCrtOn]   = useState(() => getUiPrefs().crtOverlay);
   const [animOn, setAnimOn] = useState(() => getUiPrefs().animations);
@@ -63,6 +83,28 @@ export function SystemPanel() {
           </dl>
         ) : <p className="muted">loading…</p>}
         <p className="muted">{t.system.lockoutNote}</p>
+      </Card>
+
+      <Card title={<>{t.system.passwordTitle} <span className="crt-hud-tag">BasicAuth</span></>}>
+        <p className="muted">{t.system.passwordNote}</p>
+        <div className="form-grid">
+          <label><span>{t.system.pwUser}</span>
+            <input className="crt-input" value={pwUser} onChange={(e) => setPwUser(e.target.value)} autoComplete="username" />
+          </label>
+          <label><span>{t.system.pwCurrent}</span>
+            <input className="crt-input" type="password" value={pwCur}
+              onChange={(e) => setPwCur(e.target.value)} autoComplete="current-password" />
+          </label>
+          <label><span>{t.system.pwNew}</span>
+            <input className="crt-input" type="password" value={pwNew}
+              onChange={(e) => setPwNew(e.target.value)} autoComplete="new-password"
+              placeholder={t.system.pwMinLen} />
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="primary" disabled={pwBusy || !pwCur || pwNew.length < 8}
+              onClick={changePassword}>{t.system.pwApply}</Button>
+          </div>
+        </div>
       </Card>
 
       <Card title={<>RETENTION</>}>

@@ -6,8 +6,8 @@
 //!
 //! 仕様: docs/ui_redesign_ja.md §5.10
 
-use axum::{extract::State, routing::{get, post}, Json, Router};
-use serde::Serialize;
+use axum::{extract::State, http::StatusCode, routing::{get, post, put}, Json, Router};
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -79,6 +79,41 @@ pub fn routes() -> Router<ApiState> {
         .route("/system/info", get(get_system_info))
         .route("/telemetry/status", get(get_telemetry_status))
         .route("/telemetry/test", post(post_telemetry_test))
+        .route("/system/password", put(put_password))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordBody {
+    pub username: String,
+    pub current_password: String,
+    pub new_password: String,
+}
+
+/// 管理パスワードの変更（Issue #43）。
+/// env を書き換えて再起動しなくてもコンソールから変更できるようにする。
+async fn put_password(
+    State(s): State<ApiState>,
+    Json(body): Json<ChangePasswordBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if body.new_password.chars().count() < 8 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "新しいパスワードは 8 文字以上にしてください".to_string(),
+        ));
+    }
+    if body.new_password == body.current_password {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "現在のパスワードと同じです".to_string(),
+        ));
+    }
+    crate::auth::change_password(&s.pool, &body.username, &body.current_password, &body.new_password)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e}")))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "note": "次回のログインから新しいパスワードが必要です。env の ADMIN_PASS も更新してください（再起動時に env の値で上書きされます）",
+    })))
 }
 
 async fn get_system_info(State(s): State<ApiState>) -> Json<SystemInfoResponse> {
