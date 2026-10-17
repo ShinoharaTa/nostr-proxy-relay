@@ -17,17 +17,39 @@ pub struct AuthState {
     pub throttle: AuthThrottle,
 }
 
-/// Ensure an admin user exists (idempotent).
+/// 管理ユーザーを env の内容に合わせる（冪等）。
+///
+/// **`ADMIN_PASS` が既存のハッシュと一致しなければ更新する**（Issue #43）。
+/// 以前は既存ユーザーがいると何もせず return していたため、パスワードを忘れると
+/// DB を直接書き換えるしか復旧手段が無かった。env を設定の正とし、
+/// 「env を直して再起動すれば直る」を保証する。
 pub async fn ensure_admin_user(
     pool: &SqlitePool,
     username: &str,
     password: &str,
 ) -> anyhow::Result<()> {
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM auth_users WHERE username = ?")
-        .bind(username)
-        .fetch_optional(pool)
-        .await?;
-    if existing.is_some() {
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = ?")
+            .bind(username)
+            .fetch_optional(pool)
+            .await?;
+
+    if let Some((current_hash,)) = existing {
+        // 一致していれば何もしない（毎起動で bcrypt ハッシュを作り直さない）
+        if bcrypt::verify(password, &current_hash).unwrap_or(false) {
+            return Ok(());
+        }
+        let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).context("bcrypt hash")?;
+        sqlx::query("UPDATE auth_users SET password_hash = ? WHERE username = ?")
+            .bind(hash)
+            .bind(username)
+            .execute(pool)
+            .await?;
+        // 意図しない変更に気付けるよう記録する（パスワードそのものは出さない）
+        tracing::warn!(
+            username = %username,
+            "ADMIN_PASS が既存のパスワードと異なるため更新しました"
+        );
         return Ok(());
     }
 
@@ -37,6 +59,35 @@ pub async fn ensure_admin_user(
         .bind(hash)
         .execute(pool)
         .await?;
+    tracing::info!(username = %username, "管理ユーザーを作成しました");
+    Ok(())
+}
+
+/// 現在のパスワードを検証して新しいパスワードへ変更する（コンソールから使用）。
+pub async fn change_password(
+    pool: &SqlitePool,
+    username: &str,
+    current_password: &str,
+    new_password: &str,
+) -> anyhow::Result<()> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = ?")
+            .bind(username)
+            .fetch_optional(pool)
+            .await?;
+    let Some((current_hash,)) = row else {
+        anyhow::bail!("ユーザーが見つかりません");
+    };
+    if !bcrypt::verify(current_password, &current_hash).unwrap_or(false) {
+        anyhow::bail!("現在のパスワードが違います");
+    }
+    let hash = bcrypt::hash(new_password, bcrypt::DEFAULT_COST).context("bcrypt hash")?;
+    sqlx::query("UPDATE auth_users SET password_hash = ? WHERE username = ?")
+        .bind(hash)
+        .bind(username)
+        .execute(pool)
+        .await?;
+    tracing::warn!(username = %username, "管理パスワードが変更されました");
     Ok(())
 }
 

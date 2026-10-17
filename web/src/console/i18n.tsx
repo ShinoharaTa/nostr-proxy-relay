@@ -278,6 +278,13 @@ export const consoleText = {
         <>変更は <code>LOG_RETENTION_DAYS</code> 環境変数で。</>
       ),
       noEnvOverrides: 'env からの上書きはありません',
+      passwordTitle: '管理パスワード',
+      passwordNote: 'コンソールのログインパスワードを変更します。変更後は env の ADMIN_PASS も同じ値に更新してください（再起動時に env の値で上書きされます）。忘れた場合は env の ADMIN_PASS を書き換えて再起動すればリセットできます。',
+      pwUser: 'ユーザー名',
+      pwCurrent: '現在のパスワード',
+      pwNew: '新しいパスワード',
+      pwMinLen: '8 文字以上',
+      pwApply: '変更する',
       reducedMotionNote: (
         <>
           <code>prefers-reduced-motion</code> が有効です。
@@ -524,6 +531,13 @@ export const consoleText = {
         <>Change via the <code>LOG_RETENTION_DAYS</code> environment variable.</>
       ),
       noEnvOverrides: 'No overrides from env',
+      passwordTitle: 'Admin password',
+      passwordNote: 'Change the console login password. Afterwards update ADMIN_PASS in env to the same value (env wins on restart). If you forget it, rewrite ADMIN_PASS in env and restart to reset it.',
+      pwUser: 'Username',
+      pwCurrent: 'Current password',
+      pwNew: 'New password',
+      pwMinLen: 'at least 8 characters',
+      pwApply: 'CHANGE',
       reducedMotionNote: (
         <>
           <code>prefers-reduced-motion</code> is enabled.

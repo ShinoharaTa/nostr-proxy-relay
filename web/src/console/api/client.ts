@@ -245,6 +245,9 @@ export const Translate = {
 /** ──────── System / Telemetry (Phase 2.6 — 新規エンドポイント) ──────── */
 export const System = {
   info: (s?: Sig) => request<SystemInfoResponse>('/system/info', { signal: s }),
+  /** 管理パスワードの変更 (Issue #43) */
+  changePassword: (body: { username: string; current_password: string; new_password: string }) =>
+    request<{ ok: boolean; note: string }>('/system/password', { method: 'PUT', json: body }),
 };
 
 export const Telemetry = {

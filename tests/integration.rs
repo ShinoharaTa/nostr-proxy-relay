@@ -569,3 +569,89 @@ async fn relay_suspend_resume_lifecycle() {
     assert_eq!(row.0, 1);
     assert!(row.1.is_none(), "disabled_until must be cleared");
 }
+
+#[tokio::test]
+async fn admin_password_can_be_reset_via_env() {
+    // Issue #43: ADMIN_PASS を変えて再起動したらパスワードが更新されること
+    let pool = setup_pool().await;
+
+    auth::ensure_admin_user(&pool, "admin", "old-password").await.unwrap();
+    let (hash1,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = 'admin'")
+            .fetch_one(&pool).await.unwrap();
+    assert!(bcrypt::verify("old-password", &hash1).unwrap());
+
+    // 同じパスワードで再実行してもハッシュは作り直さない（起動のたびに変わらない）
+    auth::ensure_admin_user(&pool, "admin", "old-password").await.unwrap();
+    let (hash2,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = 'admin'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(hash1, hash2, "不要なハッシュ再生成が起きている");
+
+    // 違うパスワードなら更新される（修正前はここが素通りしていた）
+    auth::ensure_admin_user(&pool, "admin", "new-password").await.unwrap();
+    let (hash3,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = 'admin'")
+            .fetch_one(&pool).await.unwrap();
+    assert!(bcrypt::verify("new-password", &hash3).unwrap(), "ADMIN_PASS が反映されていない");
+    assert!(!bcrypt::verify("old-password", &hash3).unwrap(), "旧パスワードが残っている");
+
+    // 行は増えない
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM auth_users")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn password_change_api_validates_and_applies() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin-pass").await.unwrap();
+    let app = setup_api_router(&pool).await;
+    let auth_header = basic_header("admin", "admin-pass");
+
+    let put = |body: serde_json::Value| {
+        let app = app.clone();
+        let auth_header = auth_header.clone();
+        async move {
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri("/system/password")
+                        .header("authorization", auth_header)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            resp.status()
+        }
+    };
+
+    // 現在のパスワードが違えば拒否
+    assert_eq!(
+        put(serde_json::json!({
+            "username": "admin", "current_password": "wrong", "new_password": "brand-new-pass"
+        })).await,
+        StatusCode::BAD_REQUEST
+    );
+    // 短すぎるパスワードは拒否
+    assert_eq!(
+        put(serde_json::json!({
+            "username": "admin", "current_password": "admin-pass", "new_password": "short"
+        })).await,
+        StatusCode::BAD_REQUEST
+    );
+    // 正常系
+    assert_eq!(
+        put(serde_json::json!({
+            "username": "admin", "current_password": "admin-pass", "new_password": "brand-new-pass"
+        })).await,
+        StatusCode::OK
+    );
+    let (hash,): (String,) =
+        sqlx::query_as("SELECT password_hash FROM auth_users WHERE username = 'admin'")
+            .fetch_one(&pool).await.unwrap();
+    assert!(bcrypt::verify("brand-new-pass", &hash).unwrap());
+}
