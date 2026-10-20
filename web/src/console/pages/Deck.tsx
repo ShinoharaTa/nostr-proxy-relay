@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card, Button, Pill, Tag, useConfirm, useToast } from '../primitives';
 import { Actors, AutoGuard as GuardApi, IpAcl, Quarantine as QApi, Relays, Safelist, Stats } from '../api';
 import type { ActorWindow, IpActorRow, LiveEvent, NpubActorRow, QuarantineRow } from '../api';
+import { parseLiveEvent } from '../api';
 import { usePolling } from '../utils/usePolling';
 import { useI18n } from '../i18n';
 import '../design/deck.css';
@@ -42,7 +43,7 @@ export function DeckPage() {
     es.onerror = () => { if (alive) setRec(false); };
     es.onmessage = (msg) => {
       try {
-        const parsed = JSON.parse(msg.data) as LiveEvent;
+        const parsed = parseLiveEvent(msg.data);
         setLive((prev) => {
           const next = [parsed, ...prev];
           if (next.length > LIVE_BUFFER) next.length = LIVE_BUFFER;
