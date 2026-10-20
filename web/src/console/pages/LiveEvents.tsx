@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Pill, StatusDot, Tag } from '../primitives';
 import { Icon } from '../icons/Icon';
 import type { LiveEvent } from '../api';
+import { parseLiveEvent } from '../api';
 import { ago, shortTimeOnly } from '../utils/format';
 import { useI18n } from '../i18n';
 
@@ -42,7 +43,7 @@ export function LiveEvents() {
     es.onmessage = (msg) => {
       if (pausedRef.current) return;
       try {
-        const parsed = JSON.parse(msg.data) as LiveEvent;
+        const parsed = parseLiveEvent(msg.data);
         setEvents((prev) => {
           const next = [parsed, ...prev];
           if (next.length > MAX_BUFFER) next.length = MAX_BUFFER;
