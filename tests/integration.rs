@@ -72,6 +72,47 @@ async fn api_requires_basic_auth() {
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
+/// 資格情報なしの 401 チャレンジは失敗回数に数えない。数えるのは照合失敗だけ（#46）。
+#[tokio::test]
+async fn auth_challenge_without_credentials_does_not_lock_out() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin").await.unwrap();
+    let app = setup_api_router(&pool).await;
+    let req = |auth: Option<String>| {
+        let b = Request::builder().uri("/safelist");
+        let b = match auth {
+            Some(a) => b.header("authorization", a),
+            None => b,
+        };
+        b.body(Body::empty()).unwrap()
+    };
+
+    // ダッシュボードが並列に投げる初回リクエスト相当（既定の閾値 10 を超える数）
+    for _ in 0..15 {
+        let resp = app.clone().oneshot(req(None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+    let resp = app
+        .clone()
+        .oneshot(req(Some(basic_header("admin", "admin"))))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // 誤ったパスワードは従来どおりロックアウトの対象
+    for _ in 0..10 {
+        app.clone()
+            .oneshot(req(Some(basic_header("admin", "wrong"))))
+            .await
+            .unwrap();
+    }
+    let resp = app
+        .oneshot(req(Some(basic_header("admin", "admin"))))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
 #[tokio::test]
 async fn filter_drops_kind7_same_created_at_as_cached_kind1() {
     let pool = setup_pool().await;

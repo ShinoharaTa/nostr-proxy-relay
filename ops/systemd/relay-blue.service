@@ -4,6 +4,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# 上流 WS を多数張るため既定 1024 では足りない（#45）
+LimitNOFILE=65536
 Type=simple
 WorkingDirectory=/srv/relay/blue
 EnvironmentFile=/srv/relay/blue/env

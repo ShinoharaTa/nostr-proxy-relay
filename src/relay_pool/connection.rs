@@ -14,6 +14,8 @@ const RECONNECT_BACKOFF_MAX_MS: u64 = 60000;
 const PING_INTERVAL_SECS: u64 = 30;
 /// Timeout - consider connection dead if no message received within this period (seconds)
 const RELAY_TIMEOUT_SECS: u64 = 90;
+/// 接続確立のタイムアウト（到達不能な宛先で SYN 再送を待ち続けない）
+const CONNECT_TIMEOUT_SECS: u64 = 10;
 /// この秒数以上接続を維持できた場合のみバックオフをリセットする（flap 連発抑制）
 const STABLE_RESET_SECS: u64 = 30;
 /// relay_event_logs への書き込みを最低この間隔まで間引く（Disk IO 抑制）
@@ -90,7 +92,18 @@ impl RelayConnection {
             loop {
                 *state.write().unwrap() = ConnectionState::Connecting;
                 tracing::debug!(url = %url, "Relay connection connecting");
-                match connect_async(&url).await {
+                let connect = tokio::time::timeout(
+                    Duration::from_secs(CONNECT_TIMEOUT_SECS),
+                    connect_async(&url),
+                )
+                .await
+                .unwrap_or_else(|_| {
+                    Err(tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "connect timed out",
+                    )))
+                });
+                match connect {
                     Ok((ws, _)) => {
                         *state.write().unwrap() = ConnectionState::Connected;
                         *last_error.write().unwrap() = None;

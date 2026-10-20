@@ -30,6 +30,9 @@ const BACKEND_RECONNECT_MIN_MS: u64 = 1000;
 const BACKEND_RECONNECT_MAX_MS: u64 = 60_000;
 /// この秒数以上接続を維持できた場合のみバックオフをリセットする（flap 連発抑制）
 const BACKEND_STABLE_RESET_SECS: u64 = 30;
+/// 上流への接続確立（TCP + TLS + WS ハンドシェイク）のタイムアウト。
+/// 到達不能な宛先でカーネルの SYN 再送（約 2 分）を待つ間 FD を握り続けないようにする。
+const BACKEND_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 /// 指数バックオフ + equal jitter でスリープし、次回の base を返す。
 /// 不安定な上流に対して再接続が同期して殺到する（thundering herd）のを防ぐ。
@@ -81,6 +84,17 @@ enum BackendInbound {
     Message { worker_id: u64, message: TungMessage },
 }
 
+/// バックオフ待ちの途中でセッションが終わったら即座に抜ける（次のループ先頭の判定で worker が終了する）。
+async fn backoff_or_closed(
+    base_ms: u64,
+    inbound_tx: &tokio::sync::mpsc::UnboundedSender<BackendInbound>,
+) -> u64 {
+    tokio::select! {
+        next = backoff_sleep(base_ms) => next,
+        _ = inbound_tx.closed() => base_ms,
+    }
+}
+
 fn spawn_backend_worker(
     url: String,
     worker_id: u64,
@@ -91,15 +105,34 @@ fn spawn_backend_worker(
     tokio::spawn(async move {
         let mut backoff_ms = BACKEND_RECONNECT_MIN_MS;
         loop {
+            // セッション終了（inbound 受信側の破棄）やバックエンド再構築（command 送信側の破棄）で
+            // 不要になった worker は再接続しない。これを怠ると到達不能な上流に向けた孤児 worker が
+            // 永久に残り FD が枯渇する（#45）。
+            if command_rx.is_closed() || inbound_tx.is_closed() {
+                tracing::debug!(backend_url = %url, "backend worker no longer needed");
+                return;
+            }
             tracing::debug!(backend_url = %url, "Connecting to backend relay");
-            let backend_ws = match connect_async(&url).await {
-                Ok((ws, resp)) => {
+            let connect = tokio::select! {
+                r = tokio::time::timeout(
+                    std::time::Duration::from_secs(BACKEND_CONNECT_TIMEOUT_SECS),
+                    connect_async(&url),
+                ) => r,
+                _ = inbound_tx.closed() => return,
+            };
+            let backend_ws = match connect {
+                Ok(Ok((ws, resp))) => {
                     tracing::debug!(backend_url = %url, status = ?resp.status(), "Backend relay connected");
                     ws
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     tracing::debug!(backend_url = %url, error = %e, "backend connect failed, backing off");
-                    backoff_ms = backoff_sleep(backoff_ms).await;
+                    backoff_ms = backoff_or_closed(backoff_ms, &inbound_tx).await;
+                    continue;
+                }
+                Err(_) => {
+                    tracing::debug!(backend_url = %url, "backend connect timed out, backing off");
+                    backoff_ms = backoff_or_closed(backoff_ms, &inbound_tx).await;
                     continue;
                 }
             };
@@ -190,7 +223,7 @@ fn spawn_backend_worker(
                 backoff_ms = BACKEND_RECONNECT_MIN_MS;
             }
             tracing::debug!(backend_url = %url, "backend disconnected, reconnecting");
-            backoff_ms = backoff_sleep(backoff_ms).await;
+            backoff_ms = backoff_or_closed(backoff_ms, &inbound_tx).await;
         }
     });
 }
@@ -936,7 +969,18 @@ pub async fn proxy_ws_with_ctx(
 
     'reconnect: loop {
         tracing::info!(backend_url = %backend_url, "Connecting to backend relay");
-        let backend_ws = match connect_async(&backend_url).await {
+        let connect = tokio::time::timeout(
+            std::time::Duration::from_secs(BACKEND_CONNECT_TIMEOUT_SECS),
+            connect_async(&backend_url),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "backend connect timed out",
+            )))
+        });
+        let backend_ws = match connect {
             Ok((ws, resp)) => {
                 tracing::info!(backend_url = %backend_url, status = ?resp.status(), "Backend relay connected");
                 ws
@@ -1610,4 +1654,30 @@ pub async fn proxy_ws_with_pool(
     _client_ip: Option<String>,
 ) -> anyhow::Result<()> {
     anyhow::bail!("proxy_ws_with_pool is removed; use proxy_ws_with_ctx")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 上流が応答しないまま接続待ちでも、セッションが終わったら worker は即座に終了する（#45）。
+    #[tokio::test]
+    async fn backend_worker_exits_when_session_ends_while_connecting() {
+        // accept しないリスナー: TCP は backlog で確立するが WS ハンドシェイクが返らず接続待ちが続く
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+
+        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (inbound_tx, inbound_rx) = tokio::sync::mpsc::unbounded_channel();
+        spawn_backend_worker(url, 0, command_rx, inbound_tx, Arc::default());
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!command_tx.is_closed(), "worker should still be connecting");
+
+        // セッション終了 = inbound 受信側の破棄。worker が終われば command_rx も破棄される
+        drop(inbound_rx);
+        tokio::time::timeout(std::time::Duration::from_secs(2), command_tx.closed())
+            .await
+            .expect("worker did not exit after session ended");
+    }
 }

@@ -64,8 +64,9 @@ pub async fn basic_auth(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
+    // 資格情報なしはブラウザの 401 チャレンジ待ちの初回リクエスト（ダッシュボードは並列で多数飛ぶ）。
+    // 失敗に数えると正規ユーザーがロックアウトされるので、照合に失敗した場合だけ数える（#46）。
     let Some((username, password)) = parse_basic_auth(auth) else {
-        state.throttle.on_failure(&ip);
         return unauthorized();
     };
 
