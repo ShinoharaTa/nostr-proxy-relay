@@ -313,4 +313,4 @@ body.crt-animations-off .crt-offline-bar__dot { animation: none !important; }
 .crt-app .crt-list--cards .crt-list__row > * { min-width: 0; }
 /* カード表示で操作ボタン群が横に並びきらない場合は折り返す（390px で横スクロールが出ていた, #50） */
 .crt-app .crt-list--cards .crt-list__card { min-width: 0; }
-.crt-app .crt-list--cards .crt-list__row > span { flex-wrap: wrap; justify-content: flex-end; }
+.crt-app .crt-list--cards .crt-list__row > span { flex-wrap: wrap; justify-content: flex-end; overflow-wrap: anywhere; text-align: right; }
