@@ -112,7 +112,7 @@ export function HomePage() {
                 <div className="v2-inbox__meta">
                   <span className={`v2-inbox__head tone-${l.tone}`}>{l.head}</span>
                   <span className="v2-muted">{l.text}</span>
-                  <span className="v2-mono v2-faint">{ago(parseUtc(item.at).toISOString())}</span>
+                  {item.kind !== 'relay_down' && <span className="v2-mono v2-faint">{ago(parseUtc(item.at).toISOString())}</span>}
                 </div>
                 <code className="v2-mono">{item.target_type === 'relay' ? item.target : shortId(item.target)}</code>
               </div>

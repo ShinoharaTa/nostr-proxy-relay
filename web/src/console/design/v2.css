@@ -2,7 +2,7 @@
    配色は tokens.css の --crt-* を使い、状態色だけここで定義する。
    状態色: 許可 = 青 / 時限 = 琥珀 / 拒否 = 珊瑚。明度も変えて色覚に頼らず区別できるようにする。 */
 
-.crt-app {
+:root {
   --v2-raised: #22252b;
   --v2-hover: #2a2e35;
   --v2-faint: #9296a0;
@@ -10,8 +10,9 @@
   --v2-q: #e8c27a;     --v2-q-bg: #2a2418;     --v2-q-line: #8a6a30;
   --v2-deny: #f2a49b;  --v2-deny-bg: #2e1d1b;  --v2-deny-line: #a0524b;
   --v2-ok: #8fcfbc;    --v2-ok-line: #3f6b60;
-  font-family: var(--crt-font-display);
 }
+/* 対象カード・パレットは .crt-app の外（Provider 直下）に描画されるので、文字色とフォントを明示する */
+.v2-card, .v2-palette, .v2-menu { color: var(--crt-fg); font-family: var(--crt-font-display); }
 
 .v2-mono { font-family: var(--crt-font-mono); font-variant-numeric: tabular-nums; }
 .v2-muted { color: var(--crt-fg-dim); }
@@ -312,7 +313,7 @@
 .v2-hub__link { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 38px; padding: 0 12px; border-radius: 8px; color: var(--crt-fg-muted); text-decoration: none; font-size: 13px; }
 .v2-hub__link:hover { background: var(--crt-bg-card); }
 .v2-hub__link.is-active { background: var(--crt-bg-card); color: var(--crt-fg); font-weight: 600; }
-.v2-hub__body { min-width: 0; }
+.v2-hub__body { min-width: 0; overflow-x: auto; }
 @media (max-width: 760px) {
   .v2-hub { grid-template-columns: minmax(0, 1fr); }
   .v2-hub__nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
@@ -371,6 +372,8 @@
   }
   .v2-card__grab { display: block; align-self: center; width: 40px; height: 4px; border-radius: 2px; background: var(--crt-border-strong); }
   .v2-actions .v2-btn { flex: 1 1 0; min-height: 46px; }
+  /* タッチ端末ではキーボードのヒントは不要 */
+  .v2-card kbd, .v2-inbox kbd { display: none; }
 }
 
 /* ===== ⌘K パレット ===== */
