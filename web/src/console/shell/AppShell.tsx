@@ -2,14 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Topbar } from './Topbar';
 import { SideNav } from './SideNav';
 import { BottomTab } from './BottomTab';
-import { EmergencyActionFab } from './EmergencyActionFab';
 import { OfflineBar } from './OfflineBar';
 import { initUiPrefs, getUiPrefs } from '../utils/uiPrefs';
 
 interface Props {
   children: ReactNode;
-  topbarRight?: ReactNode;
-  liveLabel?: ReactNode;
   /** 明示的に上書きしたい時のみ指定。通常は localStorage の `profiler.crtOverlay` に従う。 */
   showCrtOverlay?: boolean;
 }
@@ -19,7 +16,7 @@ interface Props {
  *  - localStorage の UI prefs を mount 時に body class に反映
  *  - OfflineBar (オフライン検出) を最上位に置く
  */
-export function AppShell({ children, topbarRight, liveLabel, showCrtOverlay }: Props) {
+export function AppShell({ children, showCrtOverlay }: Props) {
   // SystemPage から prefs が変わったとき再レンダーする最小フック。
   const [overlayOn, setOverlayOn] = useState<boolean>(() => getUiPrefs().crtOverlay);
 
@@ -45,13 +42,12 @@ export function AppShell({ children, topbarRight, liveLabel, showCrtOverlay }: P
       <OfflineBar />
       <div className="crt-shell">
         <SideNav />
-        <Topbar right={topbarRight} liveLabel={liveLabel} />
+        <Topbar />
         <main className="crt-shell__main" id="main">
           {children}
         </main>
       </div>
       <BottomTab />
-      <EmergencyActionFab />
       {effectiveOverlay && <div className="crt-overlay" aria-hidden="true" />}
     </div>
   );

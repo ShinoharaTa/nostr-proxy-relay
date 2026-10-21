@@ -12,6 +12,7 @@ import type {
   InvestigateRequest,
   InvestigateResponse,
   IpActorDetail,
+  InboxItem,
   IpActorRow,
   NpubActorDetail,
   NpubActorRow,
@@ -215,6 +216,13 @@ export const Actors = {
     request<IpActorDetail>(`/actors/ip/${encodeURIComponent(ip)}`, { signal: s }),
   npubDetail: (npub: string, s?: Sig) =>
     request<NpubActorDetail>(`/actors/npub/${encodeURIComponent(npub)}`, { signal: s }),
+};
+
+/** ──────── Inbox (#53) ──────── */
+export const Inbox = {
+  list:     (s?: Sig) => request<{ count: number; items: InboxItem[] }>('/inbox', { signal: s }),
+  snooze:   (key: string, hours?: number) => request<{ key: string; until: string }>('/inbox/snooze', { json: { key, hours } }),
+  unsnooze: (key: string) => request<void>('/inbox/unsnooze', { json: { key } }),
 };
 
 /** ──────── Investigate (Issue #31) ──────── */

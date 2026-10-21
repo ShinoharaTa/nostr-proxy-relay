@@ -12,7 +12,7 @@ html, body {
   padding: 0;
   background: var(--crt-bg);
   color: var(--crt-fg);
-  font-family: var(--crt-font-mono);
+  font-family: var(--crt-font-display);
   font-size: 14px;
   line-height: 1.55;
   min-height: 100vh;
@@ -36,7 +36,8 @@ button { font: inherit; }
   min-height: 100vh;
   background: var(--crt-bg);
   color: var(--crt-fg);
-  font-family: var(--crt-font-mono);
+  /* 本文は和文が読みやすいサンセリフ。npub・IP・数値は .v2-mono / --crt-font-mono で等幅にする（#52） */
+  font-family: var(--crt-font-display);
 }
 
 /* キーボードフォーカスは accent（鈍い黄緑）で */

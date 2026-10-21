@@ -51,7 +51,7 @@ export function prefersReducedMotion(): boolean {
 /** 現在の UI 設定を取得（同期）。 */
 export function getUiPrefs(): UiPrefs {
   return {
-    crtOverlay: loadBool(CRT_KEY, true),
+    crtOverlay: loadBool(CRT_KEY, false),
     animations: loadBool(ANIM_KEY, true),
   };
 }

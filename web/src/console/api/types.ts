@@ -17,6 +17,7 @@ export interface SuspendedRelay { url: string; until: string }
 export interface RelayStatus {
   url: string;
   status: string;
+  enabled?: boolean;
   connected_since?: string | null;
   last_event_at?: string | null;
 }
@@ -187,7 +188,40 @@ export interface IpActorDetail {
   first_seen: string | null;
   last_seen: string | null;
   recent_rejections: ActorRecentRejection[];
+  reasons_24h: ReasonCount[];
+  related: RelatedActor[];
+  history: ModerationLogEntry[];
   acl_entries: { id: number; ip_address: string; mode: string; memo: string }[];
+}
+
+/** 直近 24h の拒否理由の内訳（#53） */
+export interface ReasonCount { reason: string; count: number }
+/** 拒否ログ上で一緒に現れた相手（npub なら IP、IP なら npub） */
+export interface RelatedActor { id: string; rejections: number }
+/** 措置の履歴（#53）。actor = manual（人）/ auto（自動ガード） */
+export interface ModerationLogEntry { action: string; detail: string; actor: 'manual' | 'auto'; at: string }
+
+/** 受信箱（#53）— `/api/inbox`。項目はサーバーが都度計算する */
+export type InboxKind = 'guard' | 'npub_surge' | 'ip_surge' | 'relay_down';
+export interface InboxItem {
+  key: string;
+  kind: InboxKind;
+  target_type: 'npub' | 'ip' | 'relay';
+  target: string;
+  at: string;
+  detail: {
+    quarantine_id?: number;
+    reason?: string;
+    expires_at?: string | null;
+    rejections_10m?: number;
+    rejections?: number;
+    window_min?: number;
+    kinds?: string;
+    top_reason?: string | null;
+    npubs?: number;
+    status?: string;
+    last_error?: string | null;
+  };
 }
 
 export interface NpubActorDetail {
@@ -197,6 +231,9 @@ export interface NpubActorDetail {
   first_seen: string | null;
   last_seen: string | null;
   recent_rejections: ActorRecentRejection[];
+  reasons_24h: ReasonCount[];
+  related: RelatedActor[];
+  history: ModerationLogEntry[];
   safelist: { flags: number; banned: boolean; memo: string } | null;
   quarantine_entries: { id: number; scope: string; reason: string; expires_at: string | null }[];
 }

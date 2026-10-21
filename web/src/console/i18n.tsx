@@ -7,6 +7,7 @@
  * テーマの一部として英語のまま両言語共通。翻訳対象は説明文・確認・トースト類のみ。
  */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { v2Text } from './i18n.v2';
 
 export type ConsoleLang = 'ja' | 'en';
 
@@ -47,6 +48,7 @@ export function persistLang(lang: ConsoleLang): void {
 
 export const consoleText = {
   ja: {
+    v2: v2Text.ja,
     common: {
       confirmDelete: { title: '削除しますか？', body: 'この操作は取り消せません。', confirmLabel: '削除する' },
       deleted: '削除しました',
@@ -317,6 +319,7 @@ export const consoleText = {
     },
   },
   en: {
+    v2: v2Text.en,
     common: {
       confirmDelete: { title: 'Delete this entry?', body: 'This action cannot be undone.', confirmLabel: 'DELETE' },
       deleted: 'Deleted',

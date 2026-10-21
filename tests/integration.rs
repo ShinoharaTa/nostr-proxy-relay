@@ -717,6 +717,15 @@ async fn inbox_surge_items_resolve_by_action_or_snooze() {
     let (_, v) = get_json(&app, &auth, "/inbox").await;
     assert!(inbox_keys(&v).is_empty(), "{v}");
 
+    // 様子見の取り消しで戻る
+    assert_eq!(
+        send_json(&app, &auth, "POST", "/inbox/unsnooze", serde_json::json!({ "key": format!("ip_surge:{ip}") })).await,
+        StatusCode::OK
+    );
+    let (_, v) = get_json(&app, &auth, "/inbox").await;
+    assert_eq!(inbox_keys(&v), vec![format!("ip_surge:{ip}")]);
+    send_json(&app, &auth, "POST", "/inbox/snooze", serde_json::json!({ "key": format!("ip_surge:{ip}") })).await;
+
     // 措置は履歴に残る
     let (_, d) = get_json(&app, &auth, &format!("/actors/npub/{npub}")).await;
     assert_eq!(d["history"][0]["action"], "deny");
