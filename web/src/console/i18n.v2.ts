@@ -91,6 +91,13 @@ const ja = {
       quarantine: (left: string, why: string) => `時限 あと ${left}${why ? ` · ${why}` : ''}`,
     },
     actor: { manual: '手動', auto: '自動' },
+    manualReason: '手動',
+    actions: {
+      allow: '許可', bypass: 'BYPASS', safelist_update: 'フラグ変更', safelist_remove: '登録削除',
+      deny: '拒否', undeny: '拒否を解除', quarantine: '時限', unquarantine: '時限を解除',
+      hard_ban: 'HARD BAN', shadow_ban: 'SHADOW', whitelist: 'WHITELIST', normal: 'IP 措置なし', ip_normal: 'IP 措置を解除',
+      suspend: '一時停止', resume: '再開',
+    } as Record<string, string>,
   },
   palette: {
     label: 'npub / note / nevent / IP を貼る・探す',
@@ -237,6 +244,13 @@ const en: typeof ja = {
       quarantine: (left: string, why: string) => `Quarantined · ${left} left${why ? ` · ${why}` : ''}`,
     },
     actor: { manual: 'manual', auto: 'auto' },
+    manualReason: 'manual',
+    actions: {
+      allow: 'allow', bypass: 'bypass', safelist_update: 'flags changed', safelist_remove: 'removed',
+      deny: 'deny', undeny: 'deny removed', quarantine: 'quarantine', unquarantine: 'quarantine released',
+      hard_ban: 'HARD BAN', shadow_ban: 'SHADOW', whitelist: 'WHITELIST', normal: 'no IP action', ip_normal: 'IP action removed',
+      suspend: 'paused', resume: 'resumed',
+    } as Record<string, string>,
   },
   palette: {
     label: 'Paste or search npub / note / nevent / IP',

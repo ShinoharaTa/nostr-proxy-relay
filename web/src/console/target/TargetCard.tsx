@@ -71,10 +71,21 @@ function whenText(s: string): string {
     : d.toLocaleDateString([], { month: '2-digit', day: '2-digit' });
 }
 
-/** 自動ガードの理由（auto_guard:burst）を人が読める形に */
-export function reasonText(reason: string): string {
+/** 自動ガードの理由（auto_guard:burst）を人が読める形に。手動の時限は manualLabel で表す */
+export function reasonText(reason: string, manualLabel = 'manual'): string {
   if (reason.startsWith('auto_guard:')) return `auto guard: ${reason.slice('auto_guard:'.length)}`;
+  if (reason === 'manual') return manualLabel;
   return reason;
+}
+
+/** 履歴の detail（`86400s` など）を読める形に */
+function detailText(detail: string, manualLabel: string): string {
+  const m = /^(\d+)s$/.exec(detail);
+  if (m) {
+    const secs = +m[1];
+    return secs % 86400 === 0 ? `${secs / 86400}d` : secs % 3600 === 0 ? `${secs / 3600}h` : `${Math.round(secs / 60)}m`;
+  }
+  return reasonText(detail, manualLabel);
 }
 
 type Detail = NpubActorDetail | IpActorDetail;
@@ -178,7 +189,7 @@ function TargetCard({ id, preset, setPreset, onClose, onOpen }: {
   if (npubD?.safelist && (npubD.safelist.flags & 1) === 1) badges.push({ cls: 'allow', label: c.state.allow, undo: () => run({ type: 'unallow', npub: id }) });
   if (npubD?.safelist && (npubD.safelist.flags & 2) === 2) badges.push({ cls: '', label: c.state.bypass, undo: () => {} });
   for (const q of npubD?.quarantine_entries ?? []) {
-    badges.push({ cls: 'q', label: c.state.quarantine(leftText(q.expires_at), reasonText(q.reason)), undo: () => run({ type: 'unquarantine', npub: id }) });
+    badges.push({ cls: 'q', label: c.state.quarantine(leftText(q.expires_at), reasonText(q.reason, c.manualReason)), undo: () => run({ type: 'unquarantine', npub: id }) });
   }
   if (ipD && ipD.mode !== 'normal') {
     badges.push({ cls: ipD.mode === 'whitelist' ? 'allow' : ipD.mode === 'shadow_ban' ? 'q' : 'deny', label: ipD.mode.toUpperCase().replace('_', ' '), undo: () => run({ type: 'ip', ip: id, mode: 'normal' }) });
@@ -294,7 +305,7 @@ function TargetCard({ id, preset, setPreset, onClose, onOpen }: {
           {detail?.history.map((h, i) => (
             <div key={i} className="v2-hist">
               <span className="v2-mono v2-muted">{whenText(h.at)}</span>
-              <span>{c.actor[h.actor]} · {h.action}{h.detail ? `（${reasonText(h.detail)}）` : ''}</span>
+              <span>{c.actor[h.actor]} · {c.actions[h.action] ?? h.action}{h.detail ? `（${detailText(h.detail, c.manualReason)}）` : ''}</span>
             </div>
           ))}
         </section>

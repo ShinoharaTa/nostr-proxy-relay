@@ -49,7 +49,7 @@ export function RosterPage() {
         id: s.npub, note: s.memo, state: t.v2.card.state.deny, tone: 'deny', release: { type: 'undeny', npub: s.npub },
       })),
       quarantine: activeQ.map((q) => ({
-        id: q.npub, note: reasonText(q.reason), state: t.v2.card.state.quarantine(leftText(q.expires_at), ''), tone: 'q', release: { type: 'unquarantine', npub: q.npub },
+        id: q.npub, note: reasonText(q.reason, t.v2.card.manualReason), state: t.v2.card.state.quarantine(leftText(q.expires_at), ''), tone: 'q', release: { type: 'unquarantine', npub: q.npub },
       })),
       ip: acl.filter((a) => a.mode !== 'normal').map((a) => ({
         id: a.ip_address, note: a.memo, state: a.mode.toUpperCase().replace('_', ' '), tone: a.mode === 'whitelist' ? 'allow' : a.mode === 'shadow_ban' ? 'q' : 'deny',
