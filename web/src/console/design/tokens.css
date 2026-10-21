@@ -10,39 +10,40 @@
          値を WD1 ctOS / Profiler 相当に統一。 */
 
 :root {
-  /* ══ GOD'S EYE テーマ (mock-layouts/b2-godseye.html で 2026-08 選定) ══
-     情報戦 FUI: 暖色ブラック + オレンジ (accent) × ティール (info)。
-     変数名は互換性のため --crt-* のまま。旧 PROFILER 値は git 履歴参照。 */
+  /* ══ グラファイト（#52 の再設計で 2026-10 に変更）══
+     夜間の監視画面向けの暗いグレー + 彩度を落とした琥珀。純黒・純白は使わない。
+     状態色は 許可 = 青 / 時限 = 琥珀 / 拒否 = 珊瑚 で、明度も変えて区別する。
+     変数名は互換性のため --crt-* のまま。旧 GOD'S EYE 値は git 履歴参照。 */
 
   /* ─ Surface (暖色ブラック) ─ */
-  --crt-bg:        #0b0602;
-  --crt-bg-soft:   #150d05;
-  --crt-bg-card:   rgba(24, 15, 7, 0.93);
+  --crt-bg:        #121316;
+  --crt-bg-soft:   #16181b;
+  --crt-bg-card:   #1a1c20;
 
   /* ─ Foreground (ウォームアイボリー: 純白は使わない) ─
      fg-dim はラベル用 (bg 上 ≥6:1)。fg-muted はデータ本文の弱調用 (≥8:1)。 */
-  --crt-fg:        #f2e5d5;   /* 本文        15.3:1 */
-  --crt-fg-muted:  #c2a888;   /* 弱調         8.3:1 */
-  --crt-fg-dim:    #a38b6b;   /* ラベル       5.8:1 (旧 #8a7358 は 4.21:1 で AA 未達) */
+  --crt-fg:        #e6e6e3;   /* 本文        15.4:1 */
+  --crt-fg-muted:  #c9ccd0;   /* 弱調        11.9:1 */
+  --crt-fg-dim:    #a3a6ab;   /* ラベル       7.6:1 */
 
   /* ─ Semantic colors (God's Eye) ─ */
-  --crt-accent:    #ff8c2a;            /* トラッキングオレンジ */
-  --crt-accent-2:  #ffa04d;
-  --crt-info:      #2ad4c8;            /* メッシュティール (connected / data) */
-  --crt-warn:      #ffb347;
-  --crt-danger:    #ff3b30;            /* 塗り/枠用 */
-  --crt-danger-text: #ff6a57;          /* 小サイズ文字用の明るい danger (AA 確保) */
+  --crt-accent:    #e0b060;            /* 琥珀（彩度を落とした強調色） */
+  --crt-accent-2:  #f0c878;
+  --crt-info:      #8fcfbc;            /* 接続中・受理 */
+  --crt-warn:      #e8c27a;
+  --crt-danger:    #c8645b;            /* 塗り/枠用 */
+  --crt-danger-text: #f2a49b;          /* 小サイズ文字用 (AA 確保) */
 
   /* ─ Borders (焦げ茶) ─ */
-  --crt-border:    #3a2a16;   /* 区切り線（非インタラクティブ） */
+  --crt-border:    #2a2d33;   /* 区切り線（非インタラクティブ） */
   /* 入力欄・ボタンの枠は WCAG 1.4.11 (非テキスト 3:1) を満たす必要がある。
      旧 #6b4a24 は 2.53:1 で未達だった。 */
-  --crt-border-strong: #8a612e;
+  --crt-border-strong: #5f6570;
 
   /* ─ Typography (Helvetica + IBM Plex Mono + VT323) ─ */
-  --crt-font-display: 'Arimo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --crt-font-mono:    'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
-  --crt-font-numeric: 'VT323', 'IBM Plex Mono', ui-monospace, monospace;
+  --crt-font-display: 'IBM Plex Sans JP', 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+  --crt-font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  --crt-font-numeric: 'JetBrains Mono', ui-monospace, monospace;
 
   /* ─ Spacing ─ */
   --crt-gap-xs:    4px;
@@ -53,13 +54,13 @@
   --crt-gap-2xl:   36px;
 
   /* ─ Radius (PROFILER も角張る) ─ */
-  --crt-radius:    0;
+  --crt-radius:    6px;
   --crt-radius-dot: 50%;
 
   /* ─ Glow (PROFILER は控えめ。装飾は border / >> 矢印に集中) ─ */
-  --crt-glow-primary: 0 0 8px rgba(255, 140, 42, 0.25);
-  --crt-glow-bar:     0 0 5px rgba(255, 140, 42, 0.35);
-  --crt-text-glow:    0 0 5px rgba(255, 140, 42, 0.25);
+  --crt-glow-primary: none;
+  --crt-glow-bar:     none;
+  --crt-text-glow:    none;
 
   /* ─ z-index layers ─ */
   --crt-z-content:      1;

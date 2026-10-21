@@ -25,6 +25,7 @@ pub fn routes() -> Router<ApiState> {
     Router::new()
         .route("/inbox", get(get_inbox))
         .route("/inbox/snooze", post(post_snooze))
+        .route("/inbox/unsnooze", post(post_unsnooze))
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -219,4 +220,22 @@ async fn post_snooze(
         .execute(&s.pool)
         .await;
     Ok(Json(serde_json::json!({ "key": body.key, "until": until.0 })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UnsnoozeBody {
+    pub key: String,
+}
+
+/// 様子見を取り消す（UI の Undo 用）。
+async fn post_unsnooze(
+    State(s): State<ApiState>,
+    Json(body): Json<UnsnoozeBody>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    sqlx::query("DELETE FROM inbox_snoozes WHERE item_key = ?")
+        .bind(&body.key)
+        .execute(&s.pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(()))
 }
