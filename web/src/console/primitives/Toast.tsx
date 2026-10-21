@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type ToastVariant = 'default' | 'ok' | 'warn' | 'alert';
@@ -65,6 +65,7 @@ export function ToastHost({ children }: HostProps) {
     last.action.onClick();
     return true;
   }, [dismiss]);
+  const api = useMemo(() => ({ push, runLastAction }), [push, runLastAction]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -75,7 +76,7 @@ export function ToastHost({ children }: HostProps) {
   }, [items]);
 
   return (
-    <ToastCtx.Provider value={{ push, runLastAction }}>
+    <ToastCtx.Provider value={api}>
       {children}
       {createPortal(
         <div className="crt-toast-host" aria-live="polite">

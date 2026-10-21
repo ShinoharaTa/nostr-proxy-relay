@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Actors, Investigate } from '../api';
 import type { IpActorDetail, NpubActorDetail } from '../api';
 import { useI18n } from '../i18n';
+import { useToast } from '../primitives';
 import { useModeration } from '../moderation/useModeration';
 import { useTarget, leftText } from '../target/TargetCard';
 import { detectInput, hexToNpub, isTyping, shortId, type Detected } from '../utils/nostrId';
@@ -26,15 +27,19 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ prefill: string; share: boolean } | null>(null);
   const open = useCallback((prefill = '', share = false) => setState({ prefill, share }), []);
   const api = useMemo(() => ({ open }), [open]);
+  const toast = useToast();
 
+  // 全画面共通のキー: ⌘K / Ctrl+K と / でパレット、z で直前の措置を取り消す
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); return; }
-      if (e.key === '/' && !isTyping() && !document.querySelector('.crt-backdrop')) { e.preventDefault(); open(); }
+      if (e.metaKey || e.ctrlKey || e.altKey || isTyping() || document.querySelector('.crt-backdrop, .v2-palette-scrim')) return;
+      if (e.key === '/') { e.preventDefault(); open(); }
+      else if (e.key === 'z' && toast.runLastAction()) e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
+  }, [open, toast]);
 
   return (
     <PaletteCtx.Provider value={api}>
