@@ -13,6 +13,7 @@ mod guard;
 mod investigate;
 mod log_cleaner;
 mod metrics;
+mod moderation;
 mod nostr;
 mod parser;
 mod proxy;

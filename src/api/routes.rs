@@ -101,6 +101,7 @@ pub fn router(state: ApiState, throttle: AuthThrottle) -> Router {
         .route("/events/stream", get(sse_event_stream))
         .merge(super::system::routes())
         .merge(super::actors::routes())
+        .merge(super::inbox::routes())
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
             auth_state,
@@ -186,6 +187,7 @@ async fn post_relay_suspend(
         .await;
 
     // live な接続へ再起動なしで反映
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Relay, &body.url, "suspend", &format!("until {}", until.0), crate::moderation::Actor::Manual).await;
     s.settings.notify();
     tracing::warn!(url = %body.url, until = %until.0, "relay suspended");
     Ok(Json(serde_json::json!({ "url": body.url, "until": until.0 })))
@@ -219,6 +221,7 @@ async fn post_relay_resume(
         .execute(&s.pool)
         .await;
 
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Relay, &body.url, "resume", "", crate::moderation::Actor::Manual).await;
     s.settings.notify();
     tracing::info!(url = %body.url, "relay resumed");
     Ok(Json(serde_json::json!({ "url": body.url })))
@@ -451,14 +454,16 @@ async fn upsert_safelist(State(s): State<ApiState>, Json(body): Json<SafelistRow
     .bind(&body.memo)
     .execute(&s.pool)
     .await;
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Npub, &body.npub, crate::moderation::safelist_action(body.flags), &body.memo, crate::moderation::Actor::Manual).await;
     Json(())
 }
 
 async fn delete_safelist(State(s): State<ApiState>, Path(npub): Path<String>) -> Json<()> {
     let _ = sqlx::query("DELETE FROM safelist WHERE npub = ?")
-        .bind(npub)
+        .bind(&npub)
         .execute(&s.pool)
         .await;
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Npub, &npub, "safelist_remove", "", crate::moderation::Actor::Manual).await;
     Json(())
 }
 
@@ -469,17 +474,19 @@ async fn ban_npub(State(s): State<ApiState>, Path(npub): Path<String>) -> Json<(
         "INSERT INTO safelist (npub, flags, banned) VALUES (?, 0, 1) \
          ON CONFLICT(npub) DO UPDATE SET banned = 1",
     )
-    .bind(npub)
+    .bind(&npub)
     .execute(&s.pool)
     .await;
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Npub, &npub, "deny", "", crate::moderation::Actor::Manual).await;
     Json(())
 }
 
 async fn unban_npub(State(s): State<ApiState>, Path(npub): Path<String>) -> Json<()> {
     let _ = sqlx::query("UPDATE safelist SET banned = 0 WHERE npub = ?")
-        .bind(npub)
+        .bind(&npub)
         .execute(&s.pool)
         .await;
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Npub, &npub, "undeny", "", crate::moderation::Actor::Manual).await;
     Json(())
 }
 
@@ -716,6 +723,7 @@ async fn create_ip_access_control(
     .execute(&s.pool)
     .await;
     s.ip_acl.invalidate().await;
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Ip, &body.ip_address, mode, &body.memo, crate::moderation::Actor::Manual).await;
     if mode == "hard_ban" {
         force_disconnect(&s, &body.ip_address, is_cidr).await;
     }
@@ -740,6 +748,7 @@ async fn update_ip_access_control(
     .execute(&s.pool)
     .await;
     s.ip_acl.invalidate().await;
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Ip, &body.ip_address, mode, &body.memo, crate::moderation::Actor::Manual).await;
     if mode == "hard_ban" {
         force_disconnect(&s, &body.ip_address, is_cidr).await;
     }
@@ -747,11 +756,15 @@ async fn update_ip_access_control(
 }
 
 async fn delete_ip_access_control(State(s): State<ApiState>, Path(id): Path<i64>) -> Json<()> {
-    let _ = sqlx::query("DELETE FROM ip_access_control WHERE id = ?")
+    let ip: Option<(String,)> = sqlx::query_as("DELETE FROM ip_access_control WHERE id = ? RETURNING ip_address")
         .bind(id)
-        .execute(&s.pool)
-        .await;
+        .fetch_optional(&s.pool)
+        .await
+        .unwrap_or_default();
     s.ip_acl.invalidate().await;
+    if let Some((ip,)) = ip {
+        crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Ip, &ip, "ip_normal", "", crate::moderation::Actor::Manual).await;
+    }
     Json(())
 }
 
@@ -1455,6 +1468,8 @@ async fn create_quarantine(
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     use sqlx::Row;
     let id: i64 = result.get(0);
+    let detail = body.duration_secs.map(|d| format!("{d}s")).unwrap_or_else(|| "無期限".to_string());
+    crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Npub, &body.npub, "quarantine", &detail, crate::moderation::Actor::Manual).await;
     Ok(Json(QuarantineRow {
         id,
         npub: body.npub,
@@ -1467,10 +1482,15 @@ async fn create_quarantine(
 }
 
 async fn delete_quarantine(State(s): State<ApiState>, Path(id): Path<i64>) -> Json<()> {
-    let _ = sqlx::query("UPDATE quarantine_entries SET active = 0 WHERE id = ?")
-        .bind(id)
-        .execute(&s.pool)
-        .await;
+    let npub: Option<(String,)> =
+        sqlx::query_as("UPDATE quarantine_entries SET active = 0 WHERE id = ? RETURNING npub")
+            .bind(id)
+            .fetch_optional(&s.pool)
+            .await
+            .unwrap_or_default();
+    if let Some((npub,)) = npub {
+        crate::moderation::log_action(&s.pool, crate::moderation::TargetType::Npub, &npub, "unquarantine", "", crate::moderation::Actor::Manual).await;
+    }
     Json(())
 }
 

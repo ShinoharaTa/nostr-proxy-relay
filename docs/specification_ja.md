@@ -28,6 +28,7 @@ Proxy Nostr Relay の機能仕様をまとめたドキュメントです。
    15. [書き込みルーティング（broadcast npub / primary 限定送信）](#515-書き込みルーティングbroadcast-npub--primary-限定送信)
    16. [イベント調査（上流問い合わせ + パターン解析）](#516-イベント調査上流問い合わせ--パターン解析)
    17. [上流リレーの一時停止](#517-上流リレーの一時停止)
+   18. [受信箱と措置の履歴](#518-受信箱と措置の履歴)
 6. [評価順序（フィルタリングパイプライン）](#6-評価順序フィルタリングパイプライン)
 7. [用語集](#7-用語集)
 
@@ -771,6 +772,36 @@ hex(64 桁) に加えて bech32 を受け付け、内部で hex に正規化す�
 
 
 ---
+
+### 5.18 受信箱と措置の履歴
+
+管理コンソール再設計（#52）の土台。「人の判断が要るもの」を 1 か所に集め、対象ごとに措置の経緯を残す。
+
+#### 措置の履歴 `moderation_log`
+
+| 列 | 内容 |
+|---|---|
+| `target_type` | `npub` / `ip` / `relay` |
+| `target` | npub・IP / CIDR・リレー URL |
+| `action` | `allow` `bypass` `safelist_update` `safelist_remove` `deny` `undeny` `quarantine` `unquarantine` `hard_ban` `shadow_ban` `whitelist` `normal` `ip_normal` `suspend` `resume` |
+| `actor` | `manual`（API 経由）/ `auto`（自動ガード） |
+
+記録はベストエフォートで行う。記録に失敗しても、措置そのものは失敗させない。`GET /api/actors/:type/:id` の `history` で新しい順に 20 件を返す。同じ API は、あわせて次も返す。
+- `reasons_24h`: 直近 24h の拒否理由の内訳
+- `related`: 拒否ログ上で一緒に現れた IP / npub（直近 7 日）
+
+#### 受信箱 `GET /api/inbox`
+
+項目は呼ばれるたびに計算する。保存するのは様子見の期限だけである。措置をすれば元データの条件から外れるので、項目は自然に消える。
+
+| kind | 条件 | 消える条件 |
+|---|---|---|
+| `guard` | 自動ガード発行の有効な Quarantine | その npub に `manual` の措置が記録された / 期限切れ / 解除 |
+| `npub_surge` | 直近 10 分の拒否が 20 件以上 | 拒否（banned）または有効な Quarantine |
+| `ip_surge` | 同上（IP 単位） | HARD / SHADOW BAN |
+| `relay_down` | 有効なのに未接続の上流リレー | 接続回復 / 一時停止 |
+
+`POST /api/inbox/snooze` `{ key, hours? }` で項目を様子見にする。既定は 24h、上限は 7 日。期限が来て条件を満たしていれば、項目は再び現れる。
 
 ## 6. 評価順序（フィルタリングパイプライン）
 

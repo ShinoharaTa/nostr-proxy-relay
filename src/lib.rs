@@ -12,6 +12,7 @@ pub mod guard;
 pub mod investigate;
 pub mod log_cleaner;
 pub mod metrics;
+pub mod moderation;
 pub mod nostr;
 pub mod parser;
 pub mod proxy;

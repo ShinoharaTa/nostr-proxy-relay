@@ -1506,6 +1506,15 @@ async fn issue_auto_quarantine(ctx: &ProxyContext, npub: &str, reason: &str, sec
     .await
     {
         Ok(_) => {
+            crate::moderation::log_action(
+                &ctx.pool,
+                crate::moderation::TargetType::Npub,
+                npub,
+                "quarantine",
+                reason,
+                crate::moderation::Actor::Auto,
+            )
+            .await;
             tracing::warn!(npub = %npub, reason = %reason, expires_at = %expires_at, "auto guard fired: quarantine issued");
         }
         Err(e) => {
