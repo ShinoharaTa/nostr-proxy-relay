@@ -129,8 +129,32 @@ export const consoleText = {
     },
     block: {
       title: 'ブロック',
-      npubHint: '公開鍵単位で止めます。上のランキングは拒否の多い順。BAN は恒久、一時的に止めるなら「一時停止」を使ってください。',
+      npubHint: '公開鍵単位で許可・拒否します。ALLOW は allowlist 方式で投稿を許可、DENY は方式に関係なく投稿を拒否します（恒久）。一時的に止めるなら「一時停止」を使ってください。',
       ipHint: 'IP / CIDR 単位で止めます。HARD BAN は接続を拒否、SHADOW BAN は接続を受けつつ投稿を無効化します。',
+      quickNpubTitle: 'npub を登録',
+      quickNpubPlaceholder: 'npub1… を貼り付け（改行・空白区切りで複数可）',
+      quickIpTitle: 'IP / CIDR を登録',
+      quickIpPlaceholder: '192.0.2.1 や 198.51.100.0/24（改行・空白区切りで複数可）',
+      quickMemo: 'メモ（任意）',
+      quickInvalid: (n: number, sample: string) => `形式が正しくない値が ${n} 件あります: ${sample}`,
+      quickDone: (n: number) => `${n} 件登録しました`,
+      quickFailed: (n: number, sample: string) => `${n} 件失敗しました: ${sample}`,
+      confirmDeny: (n: number, sample: string) => ({
+        title: 'DENY に登録しますか？',
+        body: n === 1
+          ? `${sample} の投稿を恒久的に拒否します。解除は DENY タブから行えます。`
+          : `${sample} ほか ${n - 1} 件の投稿を恒久的に拒否します。解除は DENY タブから行えます。`,
+        confirmLabel: 'DENY する',
+      }),
+      confirmIpBulk: (mode: string, n: number, sample: string) => ({
+        title: `${mode.toUpperCase()} を実行しますか？`,
+        body: mode === 'hard_ban'
+          ? `${n === 1 ? sample : `${sample} ほか ${n - 1} 件`} を Hard BAN します。該当 IP の既存接続は強制切断され、以後の接続も拒否します。`
+          : `${n === 1 ? sample : `${sample} ほか ${n - 1} 件`} を Shadow BAN します。接続は受けますが投稿は無効化されます。`,
+        confirmLabel: '実行する',
+      }),
+      showMore: (n: number) => `もっと見る（あと ${n} 件）`,
+      showLess: '上位だけ表示',
     },
     rules: {
       title: 'DSL ルール',
@@ -188,7 +212,7 @@ export const consoleText = {
       savedOff: '自動ガードを無効化しました',
     },
     ipacl: {
-      emptyHint: 'ADD で IP / CIDR を追加してください',
+      emptyHint: '上の欄に IP / CIDR を貼ってモードのボタンを押すと登録できます',
       hardBanTitle: 'HARD BAN を実行しますか？',
       hardBanBody: (ip: string) => (
         <p>{ip} を Hard BAN します。<strong>該当 IP の既存 WS 接続は強制切断</strong>され、以後の接続も拒否します。</p>
@@ -203,7 +227,7 @@ export const consoleText = {
       }),
       banned: 'BAN しました',
       unbanned: 'unban しました',
-      emptyHint: 'ADD で公開鍵を追加してください',
+      emptyHint: '上の欄に npub を貼って ALLOW / DENY を押すと登録できます',
       broadcastOn: 'BROADCAST を付与しました（全リレーへ fan-out）',
       broadcastOff: 'BROADCAST を解除しました',
     },
@@ -375,8 +399,32 @@ export const consoleText = {
     },
     block: {
       title: 'Block',
-      npubHint: 'Block by public key. The ranking above is sorted by rejections. BAN is permanent — use Quarantine for a temporary stop.',
+      npubHint: 'Allow or deny by public key. ALLOW permits posting under the allowlist policy; DENY rejects posts under any policy (permanent). Use Quarantine for a temporary stop.',
       ipHint: 'Block by IP / CIDR. HARD BAN rejects the connection; SHADOW BAN accepts it but silently voids the posts.',
+      quickNpubTitle: 'Register npub',
+      quickNpubPlaceholder: 'Paste npub1… (separate multiple with newlines / spaces)',
+      quickIpTitle: 'Register IP / CIDR',
+      quickIpPlaceholder: '192.0.2.1 or 198.51.100.0/24 (separate multiple with newlines / spaces)',
+      quickMemo: 'Memo (optional)',
+      quickInvalid: (n: number, sample: string) => `${n} value(s) are malformed: ${sample}`,
+      quickDone: (n: number) => `Registered ${n}`,
+      quickFailed: (n: number, sample: string) => `${n} failed: ${sample}`,
+      confirmDeny: (n: number, sample: string) => ({
+        title: 'Add to DENY?',
+        body: n === 1
+          ? `Posts from ${sample} will be rejected permanently. Undo from the DENY tab.`
+          : `Posts from ${sample} and ${n - 1} more will be rejected permanently. Undo from the DENY tab.`,
+        confirmLabel: 'DENY',
+      }),
+      confirmIpBulk: (mode: string, n: number, sample: string) => ({
+        title: `Execute ${mode.toUpperCase()}?`,
+        body: mode === 'hard_ban'
+          ? `Hard-ban ${n === 1 ? sample : `${sample} and ${n - 1} more`}. Existing connections are force-disconnected and future ones rejected.`
+          : `Shadow-ban ${n === 1 ? sample : `${sample} and ${n - 1} more`}. Connections are accepted but posts are voided.`,
+        confirmLabel: 'EXECUTE',
+      }),
+      showMore: (n: number) => `Show more (${n} more)`,
+      showLess: 'Show top only',
     },
     rules: {
       title: 'DSL Rules',
@@ -434,7 +482,7 @@ export const consoleText = {
       savedOff: 'Auto Guard disabled',
     },
     ipacl: {
-      emptyHint: 'Use ADD to register an IP / CIDR',
+      emptyHint: 'Paste an IP / CIDR above and press a mode button',
       hardBanTitle: 'Execute HARD BAN?',
       hardBanBody: (ip: string) => (
         <p>Hard-ban {ip}. <strong>Existing WS connections from this IP are force-disconnected</strong> and future connections are rejected.</p>
@@ -449,7 +497,7 @@ export const consoleText = {
       }),
       banned: 'Banned',
       unbanned: 'Unbanned',
-      emptyHint: 'Use ADD to register a public key',
+      emptyHint: 'Paste an npub above and press ALLOW / DENY',
       broadcastOn: 'BROADCAST granted (fan-out to all relays)',
       broadcastOff: 'BROADCAST revoked',
     },

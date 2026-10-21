@@ -213,6 +213,16 @@ allowlist / denylist のラジオ切替 + backend_strategy（Failover / Fan-out 
 - スマホは「リストはカード、追加はドロワーから」（§ 6 レスポンシブ）
 - 緊急時の操作に最適化：**1 タップ追加・1 タップ解除**
 
+#### ブロック画面のクイック登録（#50）
+
+- 「ブロック」画面（npub / IP タブ）は **クイック登録 → 登録済み一覧 → ランキング** の順に並べる
+- クイック登録は入力欄 + 種別ボタンだけ。改行・空白・カンマ区切りで複数をまとめて登録できる
+  - npub: `ALLOW`（flags & 1）/ `DENY`（banned = 1、確認あり）
+  - IP: `WHITELIST` / `SHADOW BAN` / `HARD BAN`（BAN 系は確認あり）
+- 登録済み一覧のタブは `ALLOW` / `DENY` / `BYPASS`。`BYPASS` は flags & 2（filter_bypass）で、拒否ではない
+  - 以前は UI の DENY が flags & 2 を立てており、ブロックのつもりが素通しになっていた
+- ランキングは上位 10 件だけ表示し、残りは「もっと見る」で開く
+
 ### 5.9 Kind Blocklist / DSL Rules / Quick BAN
 
 - DSL Rules には dry-run モーダル（既存仕様継続）

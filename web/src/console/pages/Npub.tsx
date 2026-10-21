@@ -1,29 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Pill, DataList, type Column, Drawer, Tag, useConfirm, useToast } from '../primitives';
+import { Card, Button, Pill, DataList, type Column, Tag, useConfirm, useToast } from '../primitives';
 import { Icon } from '../icons/Icon';
 import { Actors, Quarantine as QApi, Safelist } from '../api';
 import type { ActorWindow, NpubActorRow, SafelistRow } from '../api';
 import { usePolling } from '../utils/usePolling';
 import { useI18n } from '../i18n';
+import { QuickRegister, applyAll } from './QuickRegister';
 
 const WINDOWS: { id: ActorWindow; label: string }[] = [
   { id: '1h', label: '1h' }, { id: '24h', label: '24h' }, { id: '7d', label: '7d' }, { id: 'all', label: 'ALL' },
 ];
 
-type SubTab = 'allow' | 'deny' | 'ban';
+type SubTab = 'allow' | 'deny' | 'bypass';
 
 const TABS = [
-  { id: 'allow', label: 'ALLOW' },
-  { id: 'deny',  label: 'DENY' },
-  { id: 'ban',   label: 'BAN' },
+  { id: 'allow',  label: 'ALLOW' },
+  { id: 'deny',   label: 'DENY' },
+  { id: 'bypass', label: 'BYPASS' },
 ];
 
+/** ランキングの初期表示件数。全件並べると登録欄が埋もれるため絞る（#50） */
+const TOP_LIMIT = 10;
+
+const isNpub = (v: string) => /^npub1[02-9ac-hj-np-z]{58}$/.test(v);
+
 /**
- * Npub 管理。allow / deny / ban の 3 サブタブを統合。
- * - allow: flags=1 (whitelist)
- * - deny:  flags=2 (blocklist)
- * - ban:   banned=1 (Hard BAN フラグ)
+ * Npub 管理。
+ * - allow:  flags & 1（post_allowed。allowlist 方式で POST を許可）
+ * - deny:   banned = 1（仕様 §5.2 の per-npub deny。方式に関係なく最強の拒否）
+ * - bypass: flags & 2（filter_bypass。フィルタと自動ガードの対象外）
+ *
+ * 以前は DENY タブ / ADD の DENY が flags=2 を立てており、ブロックのつもりが
+ * filter_bypass（素通し）になっていた。BAN 選択も API が banned を無視して効いていなかった（#50）。
  *
  * docs/ui_redesign_ja.md §5.8
  */
@@ -34,7 +43,7 @@ export function NpubPanel() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<SubTab>('allow');
   const [rows, setRows] = useState<SafelistRow[] | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showAllTop, setShowAllTop] = useState(false);
 
   const [window_, setWindow] = useState<ActorWindow>('24h');
   const actors = usePolling((sig) => Actors.topNpubs(window_, sig), 15000, [window_]);
@@ -60,8 +69,8 @@ export function NpubPanel() {
   const filtered = useMemo(() => {
     const all = rows ?? [];
     if (tab === 'allow') return all.filter((r) => (r.flags & 1) === 1 && !r.banned);
-    if (tab === 'deny')  return all.filter((r) => (r.flags & 2) === 2 && !r.banned);
-    return all.filter((r) => r.banned);
+    if (tab === 'deny')  return all.filter((r) => r.banned);
+    return all.filter((r) => (r.flags & 2) === 2);
   }, [rows, tab]);
 
   const remove = async (npub: string) => {
@@ -97,6 +106,32 @@ export function NpubPanel() {
     }
   };
 
+  /** クイック登録。ALLOW は flags に 1 を足し、DENY は banned を立てる（既存のフラグは保つ） */
+  const register = async (values: string[], action: string, memo: string): Promise<boolean> => {
+    if (action === 'deny' && !(await confirm({ ...t.block.confirmDeny(values.length, values[0]), destructive: true }))) {
+      return false;
+    }
+    const existing = new Map((rows ?? []).map((r) => [r.npub, r]));
+    const { ok, failed } = await applyAll(values, async (npub) => {
+      const prev = existing.get(npub);
+      if (action === 'allow') {
+        await Safelist.upsert({ npub, memo: memo || prev?.memo || '', flags: (prev?.flags ?? 0) | 1, banned: false });
+        // 明示的に ALLOW したら DENY は外す
+        if (prev?.banned) await Safelist.unban(npub);
+      } else {
+        if (memo || !prev) {
+          await Safelist.upsert({ npub, memo: memo || prev?.memo || '', flags: prev?.flags ?? 0, banned: false });
+        }
+        await Safelist.ban(npub);
+      }
+    });
+    if (ok > 0) toast.push({ variant: 'ok', message: t.block.quickDone(ok) });
+    if (failed.length > 0) toast.push({ variant: 'alert', message: t.block.quickFailed(failed.length, failed[0]) });
+    setTab(action as SubTab);
+    reload();
+    return failed.length === 0;
+  };
+
   const cols: Column<SafelistRow>[] = [
     { key: 'npub', label: 'NPUB', render: (r) => <code className="logs-cell-mono">{r.npub}</code> },
     {
@@ -104,9 +139,9 @@ export function NpubPanel() {
       render: (r) => (
         <span style={{ display: 'inline-flex', gap: 6 }}>
           {(r.flags & 1) === 1 && <Tag variant="info">ALLOW</Tag>}
-          {(r.flags & 2) === 2 && <Tag variant="warn">DENY</Tag>}
+          {(r.flags & 2) === 2 && <Tag variant="warn">BYPASS</Tag>}
           {(r.flags & 8) === 8 && <Tag variant="info">BCAST</Tag>}
-          {r.banned             && <Tag variant="alert">BAN</Tag>}
+          {r.banned             && <Tag variant="alert">DENY</Tag>}
         </span>
       ),
     },
@@ -119,7 +154,7 @@ export function NpubPanel() {
           <Button variant="ghost" iconOnly onClick={() => toggleBroadcast(r)} title={(r.flags & 8) === 8 ? 'revoke broadcast' : 'grant broadcast'}>
             <Icon name={(r.flags & 8) === 8 ? 'arrow-up' : 'arrow-down'} />
           </Button>
-          <Button variant="ghost" iconOnly onClick={() => toggleBan(r)} title={r.banned ? 'unban' : 'BAN'}>
+          <Button variant="ghost" iconOnly onClick={() => toggleBan(r)} title={r.banned ? 'undeny' : 'DENY'}>
             <Icon name={r.banned ? 'eye' : 'ban'} />
           </Button>
           <Button variant="danger" iconOnly aria-label="delete" onClick={() => remove(r.npub)}>
@@ -138,7 +173,7 @@ export function NpubPanel() {
     { key: 'status', label: 'STATUS', width: 130,
       render: (r) => (
         <span style={{ display: 'inline-flex', gap: 6 }}>
-          {r.banned && <Tag variant="alert">BAN</Tag>}
+          {r.banned && <Tag variant="alert">DENY</Tag>}
           {r.quarantined && <Tag variant="warn">QUARANTINE</Tag>}
           {r.safelist_flags != null && (r.safelist_flags & 1) === 1 && <Tag variant="info">ALLOW</Tag>}
           {!r.banned && !r.quarantined && r.safelist_flags == null && <Tag variant="dim">—</Tag>}
@@ -153,7 +188,7 @@ export function NpubPanel() {
           </Button>
           {(!r.banned && !r.quarantined) && (
             <>
-              <Button variant="danger" onClick={() => quickBan(r.npub)}>BAN</Button>
+              <Button variant="danger" onClick={() => quickBan(r.npub)}>DENY</Button>
               <Button variant="ghost" onClick={() => quickQuarantine(r.npub)}>Q 24h</Button>
             </>
           )}
@@ -161,31 +196,25 @@ export function NpubPanel() {
       ) },
   ];
 
+  const topAll = actors.data ?? [];
+  const topRows = showAllTop ? topAll : topAll.slice(0, TOP_LIMIT);
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <Card
-        title={<>TOP REJECTED <span className="crt-hud-tag">{window_} · {(actors.data ?? []).length}</span></>}
-        actions={<Pill items={WINDOWS} active={window_} onChange={(v) => setWindow(v as ActorWindow)} ariaLabel="window" />}
-      >
-        <DataList
-          rows={actors.data ?? []}
-          columns={topCols}
-          rowKey={(r) => r.npub}
-          initialSort={{ key: 'rejections', dir: 'desc' }}
-          filter={{ placeholder: 'filter npub…', match: (r, q) => r.npub.includes(q) }}
-          emptyTitle="NO REJECTIONS"
-          emptyHint={t.deck.stackEmpty}
-        />
-      </Card>
+      <QuickRegister
+        title={t.block.quickNpubTitle}
+        placeholder={t.block.quickNpubPlaceholder}
+        isValid={isNpub}
+        actions={[
+          { id: 'allow', label: 'ALLOW', variant: 'primary' },
+          { id: 'deny',  label: 'DENY',  variant: 'danger' },
+        ]}
+        onSubmit={register}
+      />
 
       <Card
         title={<>NPUB <span className="crt-hud-tag">{tab} · {filtered.length}</span></>}
-        actions={
-          <>
-            <Pill items={TABS} active={tab} onChange={(v) => setTab(v as SubTab)} ariaLabel="npub tabs" />
-            <Button variant="primary" onClick={() => setDrawerOpen(true)}><Icon name="plus" /> ADD</Button>
-          </>
-        }
+        actions={<Pill items={TABS} active={tab} onChange={(v) => setTab(v as SubTab)} ariaLabel="npub tabs" />}
       >
         <DataList
           rows={filtered}
@@ -197,62 +226,25 @@ export function NpubPanel() {
         />
       </Card>
 
-      <AddDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        defaultMode={tab}
-        onAdd={async (row) => {
-          try {
-            await Safelist.upsert(row);
-            toast.push({ variant: 'ok', message: t.common.added });
-            setDrawerOpen(false);
-            reload();
-          } catch (e) {
-            toast.push({ variant: 'alert', message: t.common.failed((e as Error).message) });
-          }
-        }}
-      />
+      <Card
+        title={<>TOP REJECTED <span className="crt-hud-tag">{window_} · {topAll.length}</span></>}
+        actions={<Pill items={WINDOWS} active={window_} onChange={(v) => setWindow(v as ActorWindow)} ariaLabel="window" />}
+      >
+        <DataList
+          rows={topRows}
+          columns={topCols}
+          rowKey={(r) => r.npub}
+          initialSort={{ key: 'rejections', dir: 'desc' }}
+          filter={{ placeholder: 'filter npub…', match: (r, q) => r.npub.includes(q) }}
+          emptyTitle="NO REJECTIONS"
+          emptyHint={t.deck.stackEmpty}
+        />
+        {topAll.length > TOP_LIMIT && (
+          <Button variant="ghost" onClick={() => setShowAllTop((v) => !v)}>
+            {showAllTop ? t.block.showLess : t.block.showMore(topAll.length - TOP_LIMIT)}
+          </Button>
+        )}
+      </Card>
     </div>
-  );
-}
-
-interface AddProps {
-  open: boolean;
-  onClose: () => void;
-  defaultMode: SubTab;
-  onAdd: (row: SafelistRow) => void;
-}
-function AddDrawer({ open, onClose, defaultMode, onAdd }: AddProps) {
-  const [npub, setNpub] = useState('');
-  const [memo, setMemo] = useState('');
-  const [mode, setMode] = useState<SubTab>(defaultMode);
-  useEffect(() => { if (open) { setNpub(''); setMemo(''); setMode(defaultMode); } }, [open, defaultMode]);
-
-  return (
-    <Drawer open={open} onClose={onClose} title="ADD NPUB">
-      <div className="form-grid">
-        <label><span>npub</span><input className="crt-input" placeholder="npub1..." value={npub} onChange={(e) => setNpub(e.target.value)} /></label>
-        <label><span>memo</span><input className="crt-input" placeholder="" value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
-        <label>
-          <span>mode</span>
-          <select className="crt-input" value={mode} onChange={(e) => setMode(e.target.value as SubTab)}>
-            <option value="allow">ALLOW (whitelist)</option>
-            <option value="deny">DENY (blocklist)</option>
-            <option value="ban">BAN (Hard)</option>
-          </select>
-        </label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" onClick={onClose}>CANCEL</Button>
-          <Button
-            variant="primary"
-            disabled={!npub.startsWith('npub')}
-            onClick={() => {
-              const flags = mode === 'allow' ? 1 : mode === 'deny' ? 2 : 0;
-              onAdd({ npub, memo, flags, banned: mode === 'ban' });
-            }}
-          >ADD</Button>
-        </div>
-      </div>
-    </Drawer>
   );
 }

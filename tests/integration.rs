@@ -113,6 +113,38 @@ async fn auth_challenge_without_credentials_does_not_lock_out() {
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
 
+/// safelist 未登録の npub でも BAN が効く（従来は UPDATE のみで黙って無視されていた, #50）。
+#[tokio::test]
+async fn ban_creates_safelist_row_for_unknown_npub() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin").await.unwrap();
+    let app = setup_api_router(&pool).await;
+    let npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/safelist/{npub}/ban"))
+                .header("authorization", basic_header("admin", "admin"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let (flags, banned): (i64, i64) =
+        sqlx::query_as("SELECT flags, banned FROM safelist WHERE npub = ?")
+            .bind(npub)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(banned, 1);
+    // 新規行に post_allowed（既定値 1）を付けてはいけない
+    assert_eq!(flags, 0);
+}
+
 #[tokio::test]
 async fn filter_drops_kind7_same_created_at_as_cached_kind1() {
     let pool = setup_pool().await;
