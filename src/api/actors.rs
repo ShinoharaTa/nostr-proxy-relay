@@ -226,7 +226,7 @@ fn window_modifier(window: &str) -> Result<Option<&'static str>, ()> {
     }
 }
 
-fn ip_mode_str(decision: &IpDecision) -> &'static str {
+pub(crate) fn ip_mode_str(decision: &IpDecision) -> &'static str {
     match decision {
         IpDecision::HardBan => "hard_ban",
         IpDecision::ShadowBan => "shadow_ban",
@@ -427,6 +427,9 @@ async fn get_actor_detail(
                 "first_seen": first_seen,
                 "last_seen": last_seen,
                 "recent_rejections": recent,
+                "reasons_24h": reasons_24h(&s, "ip_address", &id).await,
+                "related": related(&s, "ip_address", "npub", &id).await,
+                "history": history(&s, "ip", &id).await,
                 "acl_entries": acl_rows.into_iter().map(|(id, ip, mode, memo)| serde_json::json!({
                     "id": id, "ip_address": ip, "mode": mode, "memo": memo,
                 })).collect::<Vec<_>>(),
@@ -468,6 +471,9 @@ async fn get_actor_detail(
                 "first_seen": first_seen,
                 "last_seen": last_seen,
                 "recent_rejections": recent,
+                "reasons_24h": reasons_24h(&s, "npub", &id).await,
+                "related": related(&s, "npub", "ip_address", &id).await,
+                "history": history(&s, "npub", &id).await,
                 "safelist": safelist.map(|(flags, banned, memo)| serde_json::json!({
                     "flags": flags, "banned": banned != 0, "memo": memo,
                 })),
@@ -478,6 +484,58 @@ async fn get_actor_detail(
         }
         other => Err((StatusCode::BAD_REQUEST, format!("invalid actor type: {other}"))),
     }
+}
+
+/// 直近 24 時間の拒否理由の内訳（多い順）。`column` は呼び出し側の固定値のみ。
+async fn reasons_24h(s: &ApiState, column: &str, id: &str) -> Vec<serde_json::Value> {
+    let sql = format!(
+        "SELECT reason, COUNT(*) FROM event_rejection_logs \
+         WHERE {column} = ? AND datetime(created_at) >= datetime('now', '-24 hours') \
+         GROUP BY reason ORDER BY COUNT(*) DESC LIMIT 10"
+    );
+    sqlx::query_as::<_, (String, i64)>(&sql)
+        .bind(id)
+        .fetch_all(&s.pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(reason, count)| serde_json::json!({ "reason": reason, "count": count }))
+        .collect()
+}
+
+/// 拒否ログ上で一緒に現れた相手（npub なら IP、IP なら npub）。直近 7 日、多い順に 5 件。
+async fn related(s: &ApiState, column: &str, other: &str, id: &str) -> Vec<serde_json::Value> {
+    let sql = format!(
+        "SELECT {other}, COUNT(*) FROM event_rejection_logs \
+         WHERE {column} = ? AND {other} IS NOT NULL AND datetime(created_at) >= datetime('now', '-7 days') \
+         GROUP BY {other} ORDER BY COUNT(*) DESC LIMIT 5"
+    );
+    sqlx::query_as::<_, (String, i64)>(&sql)
+        .bind(id)
+        .fetch_all(&s.pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(value, count)| serde_json::json!({ "id": value, "rejections": count }))
+        .collect()
+}
+
+/// 措置の履歴（新しい順に 20 件, #53）。
+async fn history(s: &ApiState, target_type: &str, id: &str) -> Vec<serde_json::Value> {
+    sqlx::query_as::<_, (String, String, String, String)>(
+        "SELECT action, detail, actor, created_at FROM moderation_log \
+         WHERE target_type = ? AND target = ? ORDER BY id DESC LIMIT 20",
+    )
+    .bind(target_type)
+    .bind(id)
+    .fetch_all(&s.pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(action, detail, actor, created_at)| {
+        serde_json::json!({ "action": action, "detail": detail, "actor": actor, "at": created_at })
+    })
+    .collect()
 }
 
 /// 直近の拒否ログ 5 件。`column` は "ip_address" か "npub"（呼び出し側固定値のみ）。

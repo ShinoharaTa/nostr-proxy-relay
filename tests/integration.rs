@@ -642,3 +642,129 @@ async fn relay_suspend_resume_lifecycle() {
     assert_eq!(row.0, 1);
     assert!(row.1.is_none(), "disabled_until must be cleared");
 }
+
+/// メソッドと JSON ボディ付きで叩く小さなヘルパー（受信箱テスト用）
+async fn send_json(
+    app: &axum::Router,
+    auth_header: &str,
+    method: &str,
+    uri: &str,
+    body: serde_json::Value,
+) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("authorization", auth_header)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+fn inbox_keys(v: &serde_json::Value) -> Vec<String> {
+    v["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["key"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn insert_rejections(pool: &SqlitePool, npub: &str, ip: &str, n: usize) {
+    for i in 0..n {
+        sqlx::query(
+            "INSERT INTO event_rejection_logs (event_id, pubkey_hex, npub, ip_address, kind, reason) \
+             VALUES (?, '00', ?, ?, 1, 'rate_limit')",
+        )
+        .bind(format!("ev{i}"))
+        .bind(npub)
+        .bind(ip)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+/// 拒否が急増した npub / IP は受信箱に出て、拒否・様子見をすると消える（#53）。
+#[tokio::test]
+async fn inbox_surge_items_resolve_by_action_or_snooze() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin").await.unwrap();
+    let app = setup_api_router(&pool).await;
+    let auth = basic_header("admin", "admin");
+    let npub = "npub1surgesurgesurgesurgesurgesurgesurgesurgesurgesurgesurgesu";
+    let ip = "198.51.100.7";
+    insert_rejections(&pool, npub, ip, 25).await;
+
+    let (st, v) = get_json(&app, &auth, "/inbox").await;
+    assert_eq!(st, StatusCode::OK);
+    let keys = inbox_keys(&v);
+    assert!(keys.contains(&format!("npub_surge:{npub}")), "{keys:?}");
+    assert!(keys.contains(&format!("ip_surge:{ip}")), "{keys:?}");
+
+    // npub を拒否すると npub の項目は消える
+    assert_eq!(send_json(&app, &auth, "PUT", &format!("/safelist/{npub}/ban"), serde_json::json!({})).await, StatusCode::OK);
+    // IP は様子見で消える
+    assert_eq!(
+        send_json(&app, &auth, "POST", "/inbox/snooze", serde_json::json!({ "key": format!("ip_surge:{ip}") })).await,
+        StatusCode::OK
+    );
+    let (_, v) = get_json(&app, &auth, "/inbox").await;
+    assert!(inbox_keys(&v).is_empty(), "{v}");
+
+    // 様子見の取り消しで戻る
+    assert_eq!(
+        send_json(&app, &auth, "POST", "/inbox/unsnooze", serde_json::json!({ "key": format!("ip_surge:{ip}") })).await,
+        StatusCode::OK
+    );
+    let (_, v) = get_json(&app, &auth, "/inbox").await;
+    assert_eq!(inbox_keys(&v), vec![format!("ip_surge:{ip}")]);
+    send_json(&app, &auth, "POST", "/inbox/snooze", serde_json::json!({ "key": format!("ip_surge:{ip}") })).await;
+
+    // 措置は履歴に残る
+    let (_, d) = get_json(&app, &auth, &format!("/actors/npub/{npub}")).await;
+    assert_eq!(d["history"][0]["action"], "deny");
+    assert_eq!(d["reasons_24h"][0]["reason"], "rate_limit");
+    assert_eq!(d["related"][0]["id"], ip);
+
+    // 不正なキーは受け付けない
+    assert_eq!(
+        send_json(&app, &auth, "POST", "/inbox/snooze", serde_json::json!({ "key": "whatever" })).await,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+/// 自動ガードの時限措置は、発行後に人が処置するまで受信箱に残る（#53）。
+#[tokio::test]
+async fn inbox_guard_item_clears_after_manual_action() {
+    let pool = setup_pool().await;
+    auth::ensure_admin_user(&pool, "admin", "admin").await.unwrap();
+    let app = setup_api_router(&pool).await;
+    let auth = basic_header("admin", "admin");
+    let npub = "npub1guardguardguardguardguardguardguardguardguardguardguardgu";
+    let id: (i64,) = sqlx::query_as(
+        "INSERT INTO quarantine_entries (npub, scope, reason, expires_at) \
+         VALUES (?, 'post', 'auto_guard:burst', datetime('now', '+1 hour')) RETURNING id",
+    )
+    .bind(npub)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let (_, v) = get_json(&app, &auth, "/inbox").await;
+    assert_eq!(inbox_keys(&v), vec![format!("guard:{}", id.0)]);
+    assert_eq!(v["items"][0]["detail"]["reason"], "burst");
+
+    // 人が「許可」すると（時限措置は残っていても）処置済みとして消える
+    assert_eq!(
+        send_json(&app, &auth, "POST", "/safelist", serde_json::json!({ "npub": npub, "flags": 1, "memo": "", "banned": false })).await,
+        StatusCode::OK
+    );
+    let (_, v) = get_json(&app, &auth, "/inbox").await;
+    assert!(inbox_keys(&v).is_empty(), "{v}");
+}

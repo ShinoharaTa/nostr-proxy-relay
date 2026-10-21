@@ -49,9 +49,9 @@ async function loadModule() {
 }
 
 describe('getUiPrefs / setUiPref', () => {
-  it('defaults are crtOverlay=true / animations=true', async () => {
+  it('defaults are crtOverlay=false / animations=true', async () => {
     const m = await loadModule();
-    expect(m.getUiPrefs()).toEqual({ crtOverlay: true, animations: true });
+    expect(m.getUiPrefs()).toEqual({ crtOverlay: false, animations: true });
   });
 
   it('setUiPref persists to localStorage and updates body class', async () => {

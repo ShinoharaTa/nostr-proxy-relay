@@ -2,29 +2,25 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import './design/base.css';
 import './primitives/primitives.css';
 import './shell/shell.css';
+import './design/v2.css';
 import { AppShell } from './shell/AppShell';
 import { ConsoleI18nProvider } from './i18n';
 import { ToastHost } from './primitives/Toast';
 import { ConfirmHost } from './primitives/ConfirmHost';
+import { ConsoleStateProvider } from './state/ConsoleState';
+import { TargetProvider } from './target/TargetCard';
+import { PaletteProvider } from './palette/CommandPalette';
 import { Showroom } from './pages/Showroom';
-import { DeckPage } from './pages/Deck';
+import { HomePage } from './pages/Home';
 import { LiveEvents } from './pages/LiveEvents';
-import { LogsPage } from './pages/Logs';
-import { InvestigatePage } from './pages/Investigate';
-import { BackendRelays } from './pages/BackendRelays';
-import { Nip11Editor } from './pages/Nip11Editor';
-import { PostPolicyPage } from './pages/PostPolicy';
-import { BlockPage } from './pages/Block';
-import { QuarantinePage } from './pages/Quarantine';
-import { KindBlocklistPage } from './pages/KindBlocklist';
-import { RulesPage } from './pages/Rules';
-import { AutoGuardPage } from './pages/AutoGuard';
-import { SettingsPage } from './pages/Settings';
+import { RosterPage } from './pages/Roster';
+import { SettingsHub } from './pages/SettingsHub';
+import { ShareTarget } from './pages/ShareTarget';
 
 /**
- * 管理コンソール。
+ * 管理コンソール（#52 で再設計）。
  * - basename="/console" の `<BrowserRouter>` 配下で動作
- * - IA / URL マップは docs/ui_redesign_ja.md §15（Issue #29 で再編）
+ * - ナビは ホーム / ライブ / 名簿 / 設定 の 4 つ。措置は対象カードと ⌘K に集約
  * - 旧 URL はすべて redirect を残す（ブックマーク保護）
  */
 export function ConsoleApp() {
@@ -32,62 +28,65 @@ export function ConsoleApp() {
     <ConsoleI18nProvider>
     <ToastHost>
       <ConfirmHost>
+      <ConsoleStateProvider>
+      <TargetProvider>
+      <PaletteProvider>
       <AppShell>
         <Routes>
-          {/* みる */}
-          <Route path="/"     element={<DeckPage />} />
-          <Route path="/live" element={<LiveEvents />} />
-          <Route path="/logs" element={<LogsPage />} />
-          <Route path="/investigate" element={<InvestigatePage />} />
-
-          {/* とめる */}
-          <Route path="/block"      element={<BlockPage />} />
-          <Route path="/quarantine" element={<QuarantinePage />} />
-          <Route path="/auto-guard" element={<AutoGuardPage />} />
-
-          {/* ルール */}
-          <Route path="/policy" element={<PostPolicyPage />} />
-          <Route path="/kind"   element={<KindBlocklistPage />} />
-          <Route path="/dsl"    element={<RulesPage />} />
-
-          {/* つなぐ */}
-          <Route path="/relays" element={<BackendRelays />} />
-          <Route path="/nip11"  element={<Nip11Editor />} />
-
-          {/* 設定 */}
-          <Route path="/system" element={<SettingsPage />} />
+          <Route path="/"                  element={<HomePage />} />
+          <Route path="/live"              element={<LiveEvents />} />
+          <Route path="/roster"            element={<RosterPage />} />
+          <Route path="/settings"          element={<Navigate to="/settings/relays" replace />} />
+          <Route path="/settings/:section" element={<SettingsHub />} />
+          <Route path="/share"             element={<ShareTarget />} />
 
           {/* プリミティブショールーム (開発用) */}
           <Route path="/__dev" element={<Showroom />} />
 
-          {/* ── 旧 URL の互換 redirect ──
-              Phase 2 の 5 グループ構成 (/access/*, /filter/*, /backend/*, /operations/*) と
-              さらに旧い平坦 URL の両方を受ける。 */}
+          {/* ── 旧 URL の互換 redirect ── */}
+          <Route path="/investigate"        element={<RedirectKeepQuery to="/settings/investigate" />} />
+          <Route path="/logs"               element={<Navigate to="/settings/logs" replace />} />
+          <Route path="/block"              element={<Navigate to="/roster" replace />} />
+          <Route path="/quarantine"         element={<Navigate to="/roster?tab=quarantine" replace />} />
+          <Route path="/auto-guard"         element={<Navigate to="/settings/guard" replace />} />
+          <Route path="/policy"             element={<Navigate to="/settings/policy" replace />} />
+          <Route path="/kind"               element={<Navigate to="/settings/kind" replace />} />
+          <Route path="/dsl"                element={<Navigate to="/settings/dsl" replace />} />
+          <Route path="/relays"             element={<Navigate to="/settings/relays" replace />} />
+          <Route path="/nip11"              element={<Navigate to="/settings/nip11" replace />} />
+          <Route path="/system"             element={<Navigate to="/settings/system" replace />} />
           <Route path="/dashboard"          element={<Navigate to="/" replace />} />
           <Route path="/deck"               element={<Navigate to="/" replace />} />
-          <Route path="/access/npub"        element={<Navigate to="/block" replace />} />
-          <Route path="/access/ip"          element={<Navigate to="/block" replace />} />
-          <Route path="/access/quarantine"  element={<Navigate to="/quarantine" replace />} />
-          <Route path="/access/post-policy" element={<Navigate to="/policy" replace />} />
-          <Route path="/filter/kind"        element={<Navigate to="/kind" replace />} />
-          <Route path="/filter/dsl"         element={<Navigate to="/dsl" replace />} />
-          <Route path="/filter/quick-ban"   element={<Navigate to="/dsl" replace />} />
-          <Route path="/filter/auto-guard"  element={<Navigate to="/auto-guard" replace />} />
-          <Route path="/backend/relays"     element={<Navigate to="/relays" replace />} />
-          <Route path="/backend/nip11"      element={<Navigate to="/nip11" replace />} />
-          <Route path="/operations/telemetry" element={<Navigate to="/system" replace />} />
-          <Route path="/operations/system"    element={<Navigate to="/system" replace />} />
-          <Route path="/npub"       element={<Navigate to="/block" replace />} />
-          <Route path="/ip-acl"     element={<Navigate to="/block" replace />} />
-          <Route path="/post-pol"   element={<Navigate to="/policy" replace />} />
-          <Route path="/simple-ban" element={<Navigate to="/dsl" replace />} />
-          <Route path="/settings"   element={<Navigate to="/system" replace />} />
+          <Route path="/access/npub"        element={<Navigate to="/roster" replace />} />
+          <Route path="/access/ip"          element={<Navigate to="/roster?tab=ip" replace />} />
+          <Route path="/access/quarantine"  element={<Navigate to="/roster?tab=quarantine" replace />} />
+          <Route path="/access/post-policy" element={<Navigate to="/settings/policy" replace />} />
+          <Route path="/filter/kind"        element={<Navigate to="/settings/kind" replace />} />
+          <Route path="/filter/dsl"         element={<Navigate to="/settings/dsl" replace />} />
+          <Route path="/filter/quick-ban"   element={<Navigate to="/settings/dsl" replace />} />
+          <Route path="/filter/auto-guard"  element={<Navigate to="/settings/guard" replace />} />
+          <Route path="/backend/relays"     element={<Navigate to="/settings/relays" replace />} />
+          <Route path="/backend/nip11"      element={<Navigate to="/settings/nip11" replace />} />
+          <Route path="/operations/telemetry" element={<Navigate to="/settings/system" replace />} />
+          <Route path="/operations/system"    element={<Navigate to="/settings/system" replace />} />
+          <Route path="/npub"       element={<Navigate to="/roster" replace />} />
+          <Route path="/ip-acl"     element={<Navigate to="/roster?tab=ip" replace />} />
+          <Route path="/post-pol"   element={<Navigate to="/settings/policy" replace />} />
+          <Route path="/simple-ban" element={<Navigate to="/settings/dsl" replace />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
+      </PaletteProvider>
+      </TargetProvider>
+      </ConsoleStateProvider>
       </ConfirmHost>
     </ToastHost>
     </ConsoleI18nProvider>
   );
+}
+
+/** `?authors=` などのクエリを保ったまま移す（調査画面への直リンク用） */
+function RedirectKeepQuery({ to }: { to: string }) {
+  return <Navigate to={`${to}${window.location.search}`} replace />;
 }

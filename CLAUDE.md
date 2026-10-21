@@ -46,7 +46,7 @@ cd web && npm run screenshot -- --out ../screenshots --user admin --pass xxx
 | `src/investigate/` | イベント調査。**上流に問い合わせて解析し、保存しない** |
 | `src/client_ip.rs` | Tunnel / リバースプロキシ配下での実 IP 解決 |
 | `src/relay_pool/` | 上流リレーへの常時接続（状態監視 + 調査機能が利用） |
-| `web/src/console/` | 管理コンソール（GOD'S EYE テーマ） |
+| `web/src/console/` | 管理コンソール。対象中心の 4 画面 + ⌘K + 対象カード（`docs/ui_redesign_ja.md` §16） |
 
 ### 落とし穴
 
