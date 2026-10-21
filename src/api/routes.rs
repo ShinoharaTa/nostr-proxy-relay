@@ -463,10 +463,15 @@ async fn delete_safelist(State(s): State<ApiState>, Path(npub): Path<String>) ->
 }
 
 async fn ban_npub(State(s): State<ApiState>, Path(npub): Path<String>) -> Json<()> {
-    let _ = sqlx::query("UPDATE safelist SET banned = 1 WHERE npub = ?")
-        .bind(npub)
-        .execute(&s.pool)
-        .await;
+    // safelist 未登録の npub も BAN できるよう行を作る（UPDATE だけだと黙って何も起きない, #50）。
+    // 新規行の flags は 0（既定値 1 = post_allowed を付けない）。
+    let _ = sqlx::query(
+        "INSERT INTO safelist (npub, flags, banned) VALUES (?, 0, 1) \
+         ON CONFLICT(npub) DO UPDATE SET banned = 1",
+    )
+    .bind(npub)
+    .execute(&s.pool)
+    .await;
     Json(())
 }
 

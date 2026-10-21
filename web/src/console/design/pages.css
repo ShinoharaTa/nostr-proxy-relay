@@ -300,3 +300,18 @@ body.crt-animations-off .crt-offline-bar__dot { animation: none !important; }
 
 /* カード自体もはみ出さない */
 .crt-app .crt-card { min-width: 0; max-width: 100%; }
+
+/* ブロック画面のクイック登録（#50） */
+.crt-app .quick-register { display: grid; gap: 8px; min-width: 0; }
+.crt-app .quick-register__input { width: 100%; min-width: 0; resize: vertical; font-family: var(--crt-font-mono); box-sizing: border-box; }
+.crt-app .quick-register__memo { width: 100%; min-width: 0; box-sizing: border-box; }
+.crt-app .quick-register__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.crt-app .quick-register__error { margin: 0; color: var(--crt-danger-text); word-break: break-all; }
+/* 長い npub がテーブルを押し広げてカードからはみ出さないよう折り返す */
+.crt-app .crt-list .logs-cell-mono,
+.crt-app .crt-list--cards .logs-cell-mono { word-break: break-all; }
+.crt-app .crt-list--cards .crt-list__row > * { min-width: 0; }
+/* カード表示で操作ボタン群が横に並びきらない場合は折り返す（390px で横スクロールが出ていた, #50） */
+.crt-app .crt-list--cards .crt-list__card { min-width: 0; }
+.crt-app .crt-list--cards .crt-list__row > span { flex-wrap: wrap; justify-content: flex-end; overflow-wrap: anywhere; text-align: right; }
+.crt-app .crt-list--cards .crt-list__row > strong { flex-shrink: 0; }

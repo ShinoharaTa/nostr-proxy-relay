@@ -6,6 +6,7 @@ import type { ActorWindow, IpAccessControlRow, IpAclMode, IpActorRow } from '../
 import { usePolling } from '../utils/usePolling';
 import { ago } from '../utils/format';
 import { useI18n } from '../i18n';
+import { QuickRegister, applyAll } from './QuickRegister';
 
 const WINDOWS: { id: ActorWindow; label: string }[] = [
   { id: '1h', label: '1h' }, { id: '24h', label: '24h' }, { id: '7d', label: '7d' }, { id: 'all', label: 'ALL' },
@@ -20,6 +21,13 @@ const MODE_BADGE: Record<IpAclMode, 'hard' | 'shadow' | 'whitelist' | 'neutral'>
   normal:     'neutral',
 };
 
+/** ランキングの初期表示件数（#50） */
+const TOP_LIMIT = 10;
+
+/** IPv4 / IPv6、任意で /prefix 付き。厳密な検証はサーバー側で行う */
+const isIpOrCidr = (v: string) =>
+  /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*)(\/\d{1,3})?$/.test(v);
+
 export function IpAclPanel() {
   const { t } = useI18n();
   const toast = useToast();
@@ -29,6 +37,7 @@ export function IpAclPanel() {
   const [editing, setEditing] = useState<IpAccessControlRow | null>(null);
   const [confirmHardBan, setConfirmHardBan] = useState<{ ip: string; cb: () => void } | null>(null);
 
+  const [showAllTop, setShowAllTop] = useState(false);
   const [window_, setWindow] = useState<ActorWindow>('1h');
   const actors = usePolling((sig) => Actors.topIps(window_, 'connections', sig), 15000, [window_]);
 
@@ -75,6 +84,25 @@ export function IpAclPanel() {
     } else {
       doApply();
     }
+  };
+
+  /** クイック登録。既に登録済みの IP はモードを更新する */
+  const register = async (values: string[], action: string, memo: string): Promise<boolean> => {
+    const mode = action as IpAclMode;
+    if (mode !== 'whitelist' && !(await confirm({ ...t.block.confirmIpBulk(mode, values.length, values[0]), destructive: true }))) {
+      return false;
+    }
+    const existing = new Map((rows ?? []).map((r) => [r.ip_address, r]));
+    const { ok, failed } = await applyAll(values, async (ip) => {
+      const prev = existing.get(ip);
+      const body = { ip_address: ip, mode, memo: memo || prev?.memo || '' };
+      if (prev?.id) await IpAclApi.update(prev.id, body);
+      else          await IpAclApi.create(body);
+    });
+    if (ok > 0) toast.push({ variant: 'ok', message: t.block.quickDone(ok) });
+    if (failed.length > 0) toast.push({ variant: 'alert', message: t.block.quickFailed(failed.length, failed[0]) });
+    reload();
+    return failed.length === 0;
   };
 
   const cols: Column<IpAccessControlRow>[] = [
@@ -126,14 +154,34 @@ export function IpAclPanel() {
       ) : null },
   ];
 
+  const topAll = actors.data ?? [];
+  const topRows = showAllTop ? topAll : topAll.slice(0, TOP_LIMIT);
+
   return (
     <div style={{ display: 'grid', gap: 12 }}>
+      <QuickRegister
+        title={t.block.quickIpTitle}
+        placeholder={t.block.quickIpPlaceholder}
+        isValid={isIpOrCidr}
+        actions={[
+          { id: 'whitelist',  label: 'WHITELIST',  variant: 'primary' },
+          { id: 'shadow_ban', label: 'SHADOW BAN', variant: 'ghost' },
+          { id: 'hard_ban',   label: 'HARD BAN',   variant: 'danger' },
+        ]}
+        onSubmit={register}
+      />
+
+      <Card title={<>IP ACL <span className="crt-hud-tag">{rows?.length ?? 0} entries</span></>}>
+        <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id ?? r.ip_address)}
+          emptyTitle="NO ENTRIES" emptyHint={t.ipacl.emptyHint} />
+      </Card>
+
       <Card
-        title={<>TOP SOURCES <span className="crt-hud-tag">{window_} · {(actors.data ?? []).length}</span></>}
+        title={<>TOP SOURCES <span className="crt-hud-tag">{window_} · {topAll.length}</span></>}
         actions={<Pill items={WINDOWS} active={window_} onChange={(v) => setWindow(v as ActorWindow)} ariaLabel="window" />}
       >
         <DataList
-          rows={actors.data ?? []}
+          rows={topRows}
           columns={topCols}
           rowKey={(r) => r.ip}
           initialSort={{ key: 'connections', dir: 'desc' }}
@@ -141,18 +189,11 @@ export function IpAclPanel() {
           emptyTitle="NO TRAFFIC"
           emptyHint={t.deck.stackEmpty}
         />
-      </Card>
-
-      <Card
-        title={<>IP ACL <span className="crt-hud-tag">{rows?.length ?? 0} entries</span></>}
-        actions={
-          <Button variant="primary" onClick={() => { setEditing(null); setDrawerOpen(true); }}>
-            <Icon name="plus" /> ADD
+        {topAll.length > TOP_LIMIT && (
+          <Button variant="ghost" onClick={() => setShowAllTop((v) => !v)}>
+            {showAllTop ? t.block.showLess : t.block.showMore(topAll.length - TOP_LIMIT)}
           </Button>
-        }
-      >
-        <DataList rows={rows ?? []} columns={cols} rowKey={(r) => String(r.id ?? r.ip_address)}
-          emptyTitle="NO ENTRIES" emptyHint={t.ipacl.emptyHint} />
+        )}
       </Card>
 
       <EditDrawer
