@@ -101,9 +101,24 @@ cmd_deploy() {
     local src=$ROOT/$cur/app.sqlite
     if [[ -f $src ]]; then
       echo ">> $cur の DB を $slot へ複製（バックアップ付き）"
-      [[ -f $ROOT/$slot/app.sqlite ]] && cp "$ROOT/$slot/app.sqlite" "$ROOT/$slot/app.sqlite.bak.$(date +%s)"
+      # 退避は WAL の内容も含めて取る（本体だけ cp すると未チェックポイントの変更が漏れる）
+      if [[ -f $ROOT/$slot/app.sqlite ]]; then
+        local bak="$ROOT/$slot/app.sqlite.bak.$(date +%s)"
+        sqlite3 "$ROOT/$slot/app.sqlite" "VACUUM INTO '$bak'" 2>/dev/null \
+          || cp "$ROOT/$slot/app.sqlite" "$bak"
+      fi
       # WAL を畳んでから安全にコピー
-      sqlite3 "$src" "VACUUM INTO '$ROOT/$slot/app.sqlite.tmp'" && mv "$ROOT/$slot/app.sqlite.tmp" "$ROOT/$slot/app.sqlite"
+      rm -f "$ROOT/$slot/app.sqlite.tmp"
+      if sqlite3 "$src" "VACUUM INTO '$ROOT/$slot/app.sqlite.tmp'"; then
+        # 差し替え先の古い WAL / SHM を必ず消す。残すと起動時に古い WAL が新しい DB に
+        # 適用され、DB が壊れる（database disk image is malformed）
+        rm -f "$ROOT/$slot/app.sqlite-wal" "$ROOT/$slot/app.sqlite-shm"
+        mv "$ROOT/$slot/app.sqlite.tmp" "$ROOT/$slot/app.sqlite"
+      else
+        echo "ERROR: DB の複製に失敗しました（$slot の DB は変更していません）" >&2
+        rm -f "$ROOT/$slot/app.sqlite.tmp"
+        exit 1
+      fi
     fi
   fi
 
