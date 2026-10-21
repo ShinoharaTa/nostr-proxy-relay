@@ -23,6 +23,13 @@ export default defineConfig({
         display: 'standalone',
         start_url: '/console/',
         scope: '/console/',
+        // Nostr クライアントの「共有」から npub / note を受け取る（#55）。
+        // GET なので Service Worker での処理は不要。/console/share がパレットに貼った状態で開く。
+        share_target: {
+          action: '/console/share',
+          method: 'GET',
+          params: { title: 'title', text: 'text', url: 'url' },
+        },
         // 多くのブラウザは SVG アイコンを受け付ける。`any` と `maskable` を
         // 別エントリで宣言しておくと、Android のアダプティブアイコン枠が正しく
         // 切り取られ、デスクトップ PWA のホーム枠でも縁が欠けない。

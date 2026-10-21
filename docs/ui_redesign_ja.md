@@ -630,7 +630,9 @@ GET /api/actors/:type/:id
 | 名簿 | 許可 / 拒否 / 時限 / IP / BYPASS の確認と解除（登録は ⌘K） | なし |
 | 設定 | 上流リレー・自動ガード・投稿ポリシー・kind・DSL・ログ・調査・NIP-11・システム | 上流不調で点 |
 
-タブ名（`(5) …`）とアプリアイコン（`navigator.setAppBadge`）にも要対応件数を出す。旧 URL はすべて新しい場所へリダイレクトする。
+タブ名（`(5) …`）とアプリアイコン（`navigator.setAppBadge`）にも要対応件数を出す。
+
+**共有ターゲット（#55）**: PWA としてホーム画面に追加すると、Nostr クライアントの「共有」に表示される。共有された本文や URL から npub / nprofile / note / nevent / hex / IP を取り出し、⌘K パレットに貼った状態で開く（`/console/share`）。Android の Chrome / Edge で使える。iOS は共有ターゲットに未対応のため、⊕ ボタンに貼り付ける。旧 URL はすべて新しい場所へリダイレクトする。
 
 ### 16.3 キー操作
 
