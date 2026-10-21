@@ -168,7 +168,8 @@ export function NpubPanel() {
   const topCols: Column<NpubActorRow>[] = [
     { key: 'rejections', label: 'REJECT', width: 90, sortValue: (r) => r.rejections,
       render: (r) => <span style={{ color: 'var(--crt-danger-text)' }}>{r.rejections.toLocaleString()}</span> },
-    { key: 'npub', label: 'NPUB', render: (r) => <code className="logs-cell-mono">{r.npub}</code> },
+    { key: 'npub', label: 'NPUB',
+      render: (r) => <code className="logs-cell-mono" title={r.npub}>{`${r.npub.slice(0, 16)}…${r.npub.slice(-8)}`}</code> },
     { key: 'kinds', label: 'KINDS', width: 100, hideOnMobile: true, render: (r) => r.kinds || '—' },
     { key: 'status', label: 'STATUS', width: 130,
       render: (r) => (
