@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectInput, hexToNpub, npubToHex, bech32Encode } from './nostrId';
+import { detectInput, extractShared, hexToNpub, npubToHex, bech32Encode } from './nostrId';
 
 // NIP-19 の例
 const NPUB = 'npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg';
@@ -43,5 +43,17 @@ describe('detectInput', () => {
   it('それ以外は検索語', () => {
     expect(detectInput('上流')).toEqual({ kind: 'text', query: '上流' });
     expect(detectInput('   ')).toEqual({ kind: 'none' });
+  });
+});
+
+describe('extractShared', () => {
+  it('nostr: や URL に埋め込まれた識別子を取り出す', () => {
+    expect(extractShared([`見て nostr:${NPUB}`])).toBe(NPUB);
+    expect(extractShared([null, `https://njump.me/${NPUB}`])).toBe(NPUB);
+    expect(extractShared(['', NPROFILE])).toBe(NPROFILE);
+  });
+  it('識別子がなければ IP、どちらもなければ null', () => {
+    expect(extractShared(['この IP 203.0.113.9 から'])).toBe('203.0.113.9');
+    expect(extractShared(['ただの文章'])).toBeNull();
   });
 });

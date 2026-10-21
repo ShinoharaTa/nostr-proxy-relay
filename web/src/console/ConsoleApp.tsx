@@ -15,6 +15,7 @@ import { HomePage } from './pages/Home';
 import { LiveEvents } from './pages/LiveEvents';
 import { RosterPage } from './pages/Roster';
 import { SettingsHub } from './pages/SettingsHub';
+import { ShareTarget } from './pages/ShareTarget';
 
 /**
  * 管理コンソール（#52 で再設計）。
@@ -37,6 +38,7 @@ export function ConsoleApp() {
           <Route path="/roster"            element={<RosterPage />} />
           <Route path="/settings"          element={<Navigate to="/settings/relays" replace />} />
           <Route path="/settings/:section" element={<SettingsHub />} />
+          <Route path="/share"             element={<ShareTarget />} />
 
           {/* プリミティブショールーム (開発用) */}
           <Route path="/__dev" element={<Showroom />} />

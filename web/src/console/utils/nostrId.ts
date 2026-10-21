@@ -164,3 +164,21 @@ export function isTyping(): boolean {
   if (!el) return false;
   return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }
+
+/**
+ * 共有で届いた文字列（本文・URL・タイトル）から識別子を 1 つ取り出す（#55）。
+ * クライアントによって `nostr:npub1…` や `https://njump.me/nevent1…` の形で届くので、
+ * bech32 の識別子を優先し、なければ IP を探す。見つからなければ null。
+ */
+export function extractShared(parts: (string | null | undefined)[]): string | null {
+  const text = parts.filter(Boolean).join(' ');
+  const bech = text.match(/\b(npub1|nprofile1|note1|nevent1)[02-9ac-hj-np-z]{20,}/i);
+  if (bech) return bech[0];
+  const hex = text.match(/\b[0-9a-f]{64}\b/i);
+  if (hex) return hex[0];
+  for (const token of text.split(/[\s,]+/)) {
+    const d = detectInput(token);
+    if (d.kind === 'ip') return d.value;
+  }
+  return null;
+}

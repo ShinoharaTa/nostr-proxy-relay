@@ -421,3 +421,53 @@
 .crt-toast--alert { border-color: var(--v2-deny-line); }
 .crt-toast__body { display: flex; align-items: center; gap: 12px; }
 .crt-toast__action { min-height: 30px; padding: 0 10px; white-space: nowrap; }
+
+/* ===== 上流リレー（1 リレー 1 行 + 開いて編集） ===== */
+.v2-input {
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--crt-border-strong);
+  background: var(--crt-bg);
+  color: var(--crt-fg);
+  font: inherit;
+  font-size: 14px;
+  min-width: 0;
+}
+.v2-input--num { width: 96px; }
+.v2-addrow { display: flex; gap: 8px; }
+.v2-addrow .v2-input { flex: 1 1 auto; }
+.v2-dot--off { background: var(--crt-border-strong); }
+.v2-relays { list-style: none; margin: 0; padding: 0; border: 1px solid var(--crt-border); border-radius: 10px; overflow: hidden; }
+.v2-relay { border-top: 1px solid var(--crt-border); }
+.v2-relay:first-child { border-top: 0; }
+.v2-relay.is-open { background: var(--crt-bg-card); }
+.v2-relay.is-off .v2-relay__url { color: var(--crt-fg-dim); }
+.v2-relay__row { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 0; }
+.v2-relay__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px 8px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.v2-relay__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.v2-relay__url { font-size: 14px; overflow-wrap: anywhere; }
+.v2-relay__meta { font-size: 12px; color: var(--crt-fg-dim); }
+.v2-relay__edit { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 4px 14px 14px 34px; }
+.v2-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; cursor: pointer; }
+.v2-toggle input { width: 18px; height: 18px; accent-color: var(--crt-accent); }
+.v2-field { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--crt-fg-dim); }
+.v2-relay__remove { margin-left: auto; }
+@media (max-width: 640px) {
+  .v2-relay__edit { padding-left: 14px; }
+  .v2-field { flex: 1 1 100%; justify-content: space-between; }
+  .v2-relay__remove { margin-left: 0; flex: 1 1 100%; min-height: 44px; }
+}
