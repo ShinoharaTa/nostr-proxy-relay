@@ -112,6 +112,24 @@ Proxy Nostr Relay の機能仕様をまとめたドキュメントです。
 - クライアントが `CLOSE` を送ったら、対応するキャッシュエントリを削除
 - バックエンドが `CLOSED` を送ったら、対応するキャッシュエントリを削除
 
+#### EVENT の形式チェック
+上流→クライアント・クライアント→上流の両方向で、EVENT の型と形式を NIP-01 に照らして検査する。
+**id のハッシュ・署名の検証はしない**（コストが高く、上流リレーが行う前提）。
+
+| フィールド | 条件 |
+|---|---|
+| `id` / `pubkey` | 64 桁の小文字 hex 文字列 |
+| `sig` | 128 桁の小文字 hex 文字列（空文字は不可） |
+| `created_at` | 0 以上の整数（`1.0` や `"1"` は不可） |
+| `kind` | 0〜65535 の整数 |
+| `tags` | 文字列配列の配列 |
+| `content` | 文字列 |
+
+- 上流からの `["EVENT", <sub_id 文字列>, <event>]` が不正なら drop し、クライアントへ配信しない
+- クライアントの POST が不正なら `["OK", <id>, false, "invalid: ..."]` を返し、上流へ転送しない
+- 不正イベントの `pubkey` は偽装できるため、rejection log・受信箱の集計には**入れない**
+  （他人の npub が surge として受信箱に出るのを防ぐ）
+
 #### EOSE 自動 CLOSE
 - 環境変数 `EOSE_AUTOCLOSE_KINDS`（カンマ区切り、既定 `0`）で指定された kind のみを REQ に含む場合、
   EOSE 受信後にプロキシからバックエンドへ `CLOSE` を送り、キャッシュからも除去
@@ -448,6 +466,8 @@ Grafana ダッシュボード JSON サンプルを `docs/grafana/` に同梱予�
 | `filter_rule:<id>` | §5.7 |
 | `quarantine:<scope>` | §5.5 |
 | `bot_filter` | レガシー bot 検出（kind 6/7 同 created_at） |
+
+形式不正（§5.1）は `invalid_event` として drop するが、rejection log には記録しない。
 
 ---
 

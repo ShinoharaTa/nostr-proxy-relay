@@ -1,4 +1,3 @@
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -7,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::access::npub_key::pubkey_hex_to_npub;
-use crate::nostr::event::Event;
+use crate::nostr::event::{validate_event_value, Event};
 use crate::parser::filter_query::{self, CompiledFilter};
 
 /// 評価方向: バックエンド由来 EVENT に適用するか、クライアント送信 EVENT (POST) に適用するか。
@@ -196,8 +195,19 @@ impl FilterEngine {
         if arr.first().and_then(|v| v.as_str()) != Some("EVENT") {
             return Ok(DropOutcome::pass());
         }
-        let ev_v = arr.get(2).context("EVENT missing event")?;
-        let event: Event = serde_json::from_value(ev_v.clone()).context("parse event")?;
+        // 型・形式が崩れた EVENT（空 sig・不正 id など）は配信しない。
+        // pubkey は偽装できるので rejection log には残さない（他人の npub が受信箱で surge 扱いされるため）
+        let checked = match (arr.get(1).and_then(|v| v.as_str()), arr.get(2)) {
+            (Some(_), Some(ev_v)) => validate_event_value(ev_v).map_err(|e| e.to_string()),
+            _ => Err("malformed EVENT message".to_string()),
+        };
+        let event = match checked {
+            Ok(ev) => ev,
+            Err(why) => {
+                tracing::debug!(reason = %why, "drop invalid backend event");
+                return Ok(DropOutcome::invalid());
+            }
+        };
 
         // kind1 cache（速いので常に）
         if event.kind == 1 {
@@ -324,6 +334,10 @@ impl DropOutcome {
     }
     pub fn pass_with_event(ev: Event) -> Self {
         Self { dropped: false, reason: None, event: Some(ev) }
+    }
+    /// 型・形式不正で落とした。イベントとして扱えないので `event` は持たない
+    pub fn invalid() -> Self {
+        Self { dropped: true, reason: Some("invalid_event".to_string()), event: None }
     }
     pub fn dropped(reason: &str, ev: Event) -> Self {
         Self { dropped: true, reason: Some(reason.to_string()), event: Some(ev) }

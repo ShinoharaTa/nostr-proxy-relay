@@ -163,13 +163,13 @@ async fn filter_drops_kind7_same_created_at_as_cached_kind1() {
 
     // cache kind1
     let kind1 = serde_json::json!(["EVENT", "sub", {
-        "id": "kind1id",
+        "id": "1000000000000000000000000000000000000000000000000000000000000000",
         "pubkey": pubkey_hex,
         "created_at": 123,
         "kind": 1,
         "tags": [],
         "content": "hello",
-        "sig": "sig"
+        "sig": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
     }])
     .to_string();
     let outcome = engine
@@ -180,13 +180,13 @@ async fn filter_drops_kind7_same_created_at_as_cached_kind1() {
 
     // kind7 referencing kind1 with same created_at BUT pubkey is bypassed => should not drop
     let kind7_bypass = serde_json::json!(["EVENT", "sub", {
-        "id": "kind7id",
+        "id": "7000000000000000000000000000000000000000000000000000000000000000",
         "pubkey": pubkey_hex,
         "created_at": 123,
         "kind": 7,
-        "tags": [["e", "kind1id"]],
+        "tags": [["e", "1000000000000000000000000000000000000000000000000000000000000000"]],
         "content": "👁️",
-        "sig": "sig"
+        "sig": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
     }])
     .to_string();
     let outcome = engine
@@ -198,13 +198,13 @@ async fn filter_drops_kind7_same_created_at_as_cached_kind1() {
     // non-bypassed pubkey: should drop when created_at equals cached kind1
     let pubkey_hex2 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
     let kind7_drop = serde_json::json!(["EVENT", "sub", {
-        "id": "kind7id2",
+        "id": "7000000000000000000000000000000000000000000000000000000000000002",
         "pubkey": pubkey_hex2,
         "created_at": 123,
         "kind": 7,
-        "tags": [["e", "kind1id"]],
+        "tags": [["e", "1000000000000000000000000000000000000000000000000000000000000000"]],
         "content": "👁️",
-        "sig": "sig"
+        "sig": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
     }])
     .to_string();
     let outcome = engine
@@ -213,6 +213,59 @@ async fn filter_drops_kind7_same_created_at_as_cached_kind1() {
         .unwrap();
     assert!(outcome.dropped);
     assert_eq!(outcome.reason.as_deref(), Some("bot_filter"));
+}
+
+#[tokio::test]
+async fn backend_events_with_invalid_shape_are_dropped() {
+    let pool = setup_pool().await;
+    let mut engine = FilterEngine::new();
+    let valid = serde_json::json!({
+        "id": "1".repeat(64),
+        "pubkey": "2".repeat(64),
+        "created_at": 123,
+        "kind": 1,
+        "tags": [["t", "nostr"]],
+        "content": "hello",
+        "sig": "3".repeat(128),
+    });
+    let msg = |ev: &serde_json::Value| serde_json::json!(["EVENT", "sub", ev]).to_string();
+
+    let outcome = engine.should_drop_backend_text_with_ip(&pool, &msg(&valid), None).await.unwrap();
+    assert!(!outcome.dropped);
+
+    let broken = [
+        ("sig", serde_json::json!("")),
+        ("id", serde_json::json!("kind1id")),
+        ("pubkey", serde_json::json!(null)),
+        ("created_at", serde_json::json!("123")),
+        ("kind", serde_json::json!(1.5)),
+        ("tags", serde_json::json!([["t", 1]])),
+        ("content", serde_json::json!(42)),
+    ];
+    for (key, value) in broken {
+        let mut ev = valid.clone();
+        ev[key] = value;
+        let outcome = engine.should_drop_backend_text_with_ip(&pool, &msg(&ev), None).await.unwrap();
+        assert!(outcome.dropped, "{key} should be rejected");
+        assert_eq!(outcome.reason.as_deref(), Some("invalid_event"));
+        assert!(outcome.event.is_none());
+    }
+
+    // sub_id が文字列でない / イベント本体が無い
+    for text in [
+        serde_json::json!(["EVENT", 1, valid]).to_string(),
+        serde_json::json!(["EVENT", "sub"]).to_string(),
+    ] {
+        let outcome = engine.should_drop_backend_text_with_ip(&pool, &text, None).await.unwrap();
+        assert!(outcome.dropped);
+    }
+
+    // 偽装されうる pubkey を rejection log に積まない
+    let (logged,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM event_rejection_logs")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(logged, 0);
 }
 
 #[tokio::test]

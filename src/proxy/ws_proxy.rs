@@ -642,6 +642,11 @@ pub async fn proxy_ws_fanout_with_ctx(
                                 closed_seen.remove(sub_id);
                                 send_to_read_backends(&backend_txs, TungMessage::Text(text));
                             }
+                            Err(ParseClientMsgError::InvalidEvent { id, reason }) => {
+                                tracing::debug!(ip = %client_ip, error = %reason, "reject invalid client event");
+                                let ok = serde_json::json!(["OK", id, false, format!("invalid: {reason}")]).to_string();
+                                let _ = client_out_tx.send(Message::Text(ok));
+                            }
                             Err(ParseClientMsgError::UnsupportedCommand(_)) => {
                                 send_to_backends(&backend_txs, TungMessage::Text(text));
                             }
@@ -1083,6 +1088,11 @@ pub async fn proxy_ws_with_ctx(
                                         backend_disconnected = true;
                                         break;
                                     }
+                                }
+                                Err(ParseClientMsgError::InvalidEvent { id, reason }) => {
+                                    tracing::debug!(ip = %client_ip, error = %reason, "reject invalid client event");
+                                    let ok = serde_json::json!(["OK", id, false, format!("invalid: {reason}")]).to_string();
+                                    let _ = client_out_tx.send(Message::Text(ok));
                                 }
                                 Err(ParseClientMsgError::UnsupportedCommand(_)) => {
                                     // 知らないコマンドはそのまま転送

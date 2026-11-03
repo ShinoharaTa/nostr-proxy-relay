@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::event::Event;
+use super::event::{validate_event_value, Event, InvalidEvent};
 
 /// NIP-01 client -> relay messages (subset we need).
 #[derive(Debug, Clone)]
@@ -53,6 +53,9 @@ pub enum ParseClientMsgError {
     TooManyTags(usize, usize),
     #[error("REQ has too many filters: {0} (max {1})")]
     TooManyFilters(usize, usize),
+    /// EVENT の型・形式が NIP-01 に沿わない。`id` は OK 応答用（文字列でなければ空）
+    #[error("invalid event: {reason}")]
+    InvalidEvent { id: String, reason: InvalidEvent },
 }
 
 /// NIP-11 由来のクライアントメッセージ制約。
@@ -112,7 +115,10 @@ pub fn parse_client_msg_with_limits(
             let ev_v = arr
                 .get(1)
                 .ok_or_else(|| ParseClientMsgError::Invalid("EVENT missing event".into()))?;
-            let event: Event = serde_json::from_value(ev_v.clone())?;
+            let event = validate_event_value(ev_v).map_err(|reason| ParseClientMsgError::InvalidEvent {
+                id: ev_v.get("id").and_then(|x| x.as_str()).unwrap_or_default().to_string(),
+                reason,
+            })?;
             if let Some(max) = limits.max_content_length {
                 if event.content.len() > max {
                     return Err(ParseClientMsgError::ContentTooLong(event.content.len(), max));
